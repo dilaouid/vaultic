@@ -9,6 +9,7 @@ class Config:
     INDEX_FILE = os.getenv("VAULTIC_INDEX_FILE", "./data/.vaultic/index.json")
     LOG_FILE = os.getenv("VAULTIC_LOG_FILE", "./data/.vaultic/backup.log")
     KEY_PATH = os.getenv("VAULTIC_ENCRYPTION_KEY_PATH", "~/.vaultic_key.pem")
+    GUI_TEMP_LIFETIME_SECONDS = os.getenv("GUI_TEMP_LIFETIME_SECONDS")
 
     # Provider-specific configs
     GOOGLE_CLIENT_ID = os.getenv("GOOGLE_DRIVE_CLIENT_ID")
