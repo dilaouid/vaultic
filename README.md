@@ -10,13 +10,28 @@ Built for developers, freelancers, and privacy-focused users who want to store f
 
 ### 📦 Features
 
-- 🔐 AES and RSA encryption
+- 🔐 AES encryption + RSA for key management
 - ☁️ Upload to Google Drive or Backblaze B2
 - 📁 Incremental backup (saves only changes)
 - 💾 Local key generation and management
-- ✅ CLI and GUI (cross-platform)
+- 🖥 GUI for browsing encrypted folders
 - 🧪 Fully testable core logic
 - 🧰 Easy to extend with new cloud providers
+
+---
+
+### Encrypted Folder Navigation
+
+The Vaultic GUI acts as a secure viewer into your encrypted backup directories.
+You can browse folders, view decrypted filenames, and even open files (like images or documents) on-the-fly, decrypted temporarily in memory or in a secure temp folder.
+
+Your data stays fully encrypted on disk
+
+No clear-text files are stored unless explicitly exported
+
+Works seamlessly with nested folders, previews, and quick restores
+
+Imagine an encrypted vault that opens up like a regular file explorer — that's Vaultic's GUI philosophy.
 
 ---
 
@@ -87,14 +102,20 @@ B2_BUCKET_NAME=...
 
 - [ ] CLI with encryption + cloud upload
 - [x] Key generation and persistence
-- [ ] GUI (Tkinter or Tauri)
+- [ ] Encrypted folder browser in GUI
+- [ ] Encrypted file preview in GUI
 - [ ] Automatic scheduling
 - [ ] Multi-provider sync
+- [ ] Scheduling
 - [ ] Versioning and differential backup
 
 ---
 
 ### 🛡 Security Notice
 
-Vaultic encrypts your files **locally**, before anything is sent to the cloud.  
-Vaultic never sends your key or decrypted data over the network.
+Vaultic encrypts your files **locally**, before anything is sent to the cloud.
+All decryption is handled on demand, and only temporarily in memory or isolated disk space.
+Vaultic never uploads, stores, or syncs your key or decrypted data.
+
+If you lose your key, your files are lost. Forever.
+(Yes, really.)
