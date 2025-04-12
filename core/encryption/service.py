@@ -1,5 +1,13 @@
+import json
+import os
+import base64
+
 from cryptography.fernet import Fernet
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+from cryptography.hazmat.backends import default_backend
+
 from pathlib import Path
+from core.encryption.key_derivation import load_or_generate_key_via_passphrase
 
 class EncryptionService:
     """
@@ -9,15 +17,17 @@ class EncryptionService:
     and decryption with consistent and secure storage of the key file.
     """
 
-    def __init__(self, key_path: str):
+    def __init__(self, passphrase: str, meta_path: Path):
         """
         Initializes the EncryptionService.
 
         Args:
             key_path (str): Path to the symmetric encryption key file (.key).
         """
-        self.key_path = Path(key_path).expanduser()
-        self.key = self.load_or_create_key()
+        self.meta_path = meta_path.expanduser()
+        self.passphrase = passphrase.encode()
+        self.meta = self.load_or_create_metadata()
+        self.key = self.derive_key()
         self.fernet = Fernet(self.key)
 
     @staticmethod
@@ -29,6 +39,18 @@ class EncryptionService:
             bytes: The newly generated encryption key.
         """
         return Fernet.generate_key()
+    
+    def derive_key(self) -> bytes:
+        salt = bytes.fromhex(self.meta["salt"])
+        kdf = PBKDF2HMAC(
+            algorithm=__import__("cryptography.hazmat.primitives.hashes").hazmat.primitives.hashes.SHA256(),
+            length=32,
+            salt=salt,
+            iterations=390000,
+            backend=default_backend()
+        )
+        return base64.urlsafe_b64encode(kdf.derive(self.passphrase))
+
 
     def save_key(self, key: bytes) -> None:
         """
@@ -59,10 +81,13 @@ class EncryptionService:
             bytes: The encryption key.
         """
         if self.key_path.exists():
-            return self.load_key()
-        key = self.generate_key()
-        self.save_key(key)
-        return key
+            if self.key_path.suffix == ".pem":
+                return self.load_key()  # legacy Fernet key file
+            else:
+                return load_or_generate_key_via_passphrase()
+        else:
+            return load_or_generate_key_via_passphrase()
+
 
     def encrypt_file(self, input_path: str, output_path: str) -> None:
         """
@@ -89,3 +114,13 @@ class EncryptionService:
             decrypted = self.fernet.decrypt(file.read())
         with open(output_path, 'wb') as file:
             file.write(decrypted)
+
+    def load_or_create_metadata(self) -> dict:
+        if self.meta_path.exists():
+            return json.loads(self.meta_path.read_text())
+
+        salt = os.urandom(16).hex()
+        meta = {"salt": salt, "version": 1}
+        self.meta_path.parent.mkdir(parents=True, exist_ok=True)
+        self.meta_path.write_text(json.dumps(meta))
+        return meta

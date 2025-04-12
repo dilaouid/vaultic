@@ -1,5 +1,6 @@
 import time
 from pathlib import Path
+from typing import Optional, Union
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 from core.encryption.service import EncryptionService
@@ -8,11 +9,12 @@ from core.utils import console
 from core.storage.factory import get_provider
 
 class VaulticWatcher(FileSystemEventHandler):
-    def __init__(self, watch_dir: Path, encrypted_dir: Path, key_path: Path):
+    def __init__(self, watch_dir: Path, encrypted_dir: Path, enc_service: EncryptionService):
         self.watch_dir = watch_dir.resolve()
         self.encrypted_dir = encrypted_dir.resolve()
         self.encrypted_dir.mkdir(parents=True, exist_ok=True)
-        self.enc_service = EncryptionService(str(key_path))
+
+        self.enc_service = enc_service
         self.provider = get_provider(Config.PROVIDER)
 
     def on_created(self, event):
@@ -67,14 +69,15 @@ class VaulticWatcher(FileSystemEventHandler):
         console.print('-------------------------------')
 
 
-def start_vaultic_watcher(key_path_override=None):
+def start_vaultic_watcher(passphrase: str, meta_path: Optional[Union[str, Path]] = None):
     vault_dir = Path(".vaultic")
     encrypted_dir = vault_dir / "encrypted"
-
-    key_path = Path(key_path_override).expanduser() if key_path_override else Path(Config.KEY_PATH).expanduser()
+    meta_path = Path(meta_path).expanduser() if meta_path else Path(".vaultic/keys/vaultic_meta.json")
 
     console.print(f"👀  [blue]Watching: {vault_dir.resolve()} for changes…[/blue]")
-    event_handler = VaulticWatcher(vault_dir, encrypted_dir, key_path)
+    enc_service = EncryptionService(passphrase, meta_path)
+    event_handler = VaulticWatcher(vault_dir, encrypted_dir, enc_service)
+
     observer = Observer()
     observer.schedule(event_handler, str(vault_dir), recursive=True)
     observer.start()
