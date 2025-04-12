@@ -3,42 +3,39 @@ from pathlib import Path
 from rich import print
 from core.config import Config
 from core.encryption.service import EncryptionService
-from core.storage.factory import get_provider
 
 app = typer.Typer()
 
 @app.command("file")
 def restore_file(
-    filename: str = typer.Argument(..., help="Relative path to the original file (ex: Folder/image1.jpg)"),
-    output_dir: str = typer.Option("restored", help="Where to save the restored file"),
-    provider: str = typer.Option(None, help="Override cloud provider defined in .env"),
+    encrypted_file: str = typer.Argument(..., help="Path to the encrypted .enc file"),
+    output_path: str = typer.Option(None, help="Destination path (default: remove .enc extension)"),
 ):
     """
-    Restore a single encrypted file from the cloud to local disk.
+    Decrypts a file encrypted with Vaultic and restores it to its original form.
     """
-    provider_name = provider or Config.PROVIDER
-    storage = get_provider(provider_name)
+    input_path = Path(encrypted_file).resolve()
 
-    encrypted_filename = str(filename) + ".enc"
-    local_encrypted_path = Path(".vaultic/temp") / encrypted_filename
-    local_encrypted_path.parent.mkdir(parents=True, exist_ok=True)
-
-    # Step 1: Download the file from cloud
-    try:
-        storage.download_file(encrypted_filename, local_encrypted_path)
-        print(f"[blue]☁️ Downloaded:[/blue] {encrypted_filename}")
-    except FileNotFoundError:
-        print(f"[red]❌ File not found on remote:[/red] {encrypted_filename}")
+    if not input_path.exists():
+        print(f"[red]❌ File not found: {input_path}[/red]")
         raise typer.Exit(1)
 
-    # Step 2: Decrypt
+    if not input_path.name.endswith(".enc"):
+        print(f"[red]❌ Invalid file: expected .enc extension[/red]")
+        raise typer.Exit(1)
+
+    if output_path:
+        output_path = Path(output_path).resolve()
+    else:
+        output_path = input_path.with_name(input_path.name.replace(".enc", ""))
+
+    print(f"[blue]🔓 Restoring:[/blue] {input_path.name} → {output_path.name}")
+
     enc = EncryptionService(Config.KEY_PATH)
-    output_path = Path(output_dir) / filename
-    output_path.parent.mkdir(parents=True, exist_ok=True)
 
     try:
-        enc.decrypt_file(local_encrypted_path, output_path)
-        print(f"[green]✅ Restored to:[/green] {output_path}")
+        enc.decrypt_file(str(input_path), str(output_path))
+        print(f"[green]✅ Restored successfully:[/green] {output_path}")
     except Exception as e:
-        print(f"[red]❌ Failed to decrypt file:[/red] {e}")
+        print(f"[red]❌ Decryption failed: {e}[/red]")
         raise typer.Exit(1)
