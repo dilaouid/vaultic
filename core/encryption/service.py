@@ -20,7 +20,8 @@ class EncryptionService:
         self.key = self.load_or_create_key()
         self.fernet = Fernet(self.key)
 
-    def generate_key(self) -> bytes:
+    @staticmethod
+    def generate_key() -> bytes:
         """
         Generates a new symmetric encryption key using Fernet (AES-128 under the hood).
 
