@@ -75,3 +75,33 @@ def test_list_index_json_output():
         assert "vault/data.json" in result.output
         assert "deadbeef" in result.output
         assert result.output.strip().startswith("{")  # JSON
+
+def test_list_uses_default_index_path(monkeypatch):
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp = Path(tmp_dir)
+
+        default_index = tmp / "index.json"
+
+        # Inject default index path via env var override
+        monkeypatch.setenv("VAULTIC_INDEX_FILE", str(default_index))
+        import importlib
+        import core.config
+        importlib.reload(core.config)
+        from core.config import Config
+
+        index_data = {
+            "files": [
+                {
+                    "relative_path": "music/song.mp3",
+                    "encrypted_path": "/tmp/encrypted/music/song.mp3.enc",
+                    "hash": "a1b2c3d4e5f6"
+                }
+            ]
+        }
+
+        save_index(index_data, default_index)
+
+        result = runner.invoke(app, ["list"])
+
+        assert result.exit_code == 0
+        assert "music/song.mp3" in result.output

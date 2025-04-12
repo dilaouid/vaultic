@@ -2,14 +2,10 @@ import typer
 from pathlib import Path
 from rich import print
 from rich.table import Table
-from core.config import Config
 from core.indexing.indexer import load_index
 
-app = typer.Typer()
-
-@app.command()
-def list(
-    index_path: str = typer.Option(Config.INDEX_FILE, help="Path to the index file"),
+def list_files(
+    index_path: str,
     json_output: bool = typer.Option(False, "--json", help="Output the raw index as JSON")
 ):
     """
