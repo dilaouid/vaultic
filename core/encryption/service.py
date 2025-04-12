@@ -29,6 +29,7 @@ class EncryptionService:
         self.meta = self.load_or_create_metadata()
         self.key = self.derive_key()
         self.fernet = Fernet(self.key)
+        self.verify_passphrase()
         self.salt = self.meta["salt"]
 
     @staticmethod
@@ -125,3 +126,22 @@ class EncryptionService:
         self.meta_path.parent.mkdir(parents=True, exist_ok=True)
         self.meta_path.write_text(json.dumps(meta))
         return meta
+    
+    def create_meta_test_file(self):
+        test_path = self.meta_path.parent / ".meta-test"
+        test_data = b"vaultic-test"
+        encrypted = self.fernet.encrypt(test_data)
+        test_path.write_bytes(encrypted)
+
+    def verify_passphrase(self):
+        test_path = self.meta_path.parent / ".meta-test"
+        if not test_path.exists():
+            self.create_meta_test_file()
+            return
+        try:
+            encrypted = test_path.read_bytes()
+            decrypted = self.fernet.decrypt(encrypted)
+            if decrypted != b"vaultic-test":
+                raise ValueError("Corrupted .meta-test")
+        except Exception:
+            raise ValueError("❌ Invalid passphrase or mismatched salt. Decryption test failed.")
