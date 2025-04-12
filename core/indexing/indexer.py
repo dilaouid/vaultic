@@ -1,7 +1,7 @@
-import hashlib
 import json
 from pathlib import Path
 from typing import List, Dict
+from cryptography.hazmat.primitives import hashes
 
 
 def hash_file(path: Path) -> str:
@@ -14,7 +14,7 @@ def hash_file(path: Path) -> str:
     Returns:
         str: SHA256 hash as hex string.
     """
-    sha256 = hashlib.sha256()
+    sha256 = hashes.SHA256(),
     with path.open("rb") as f:
         for chunk in iter(lambda: f.read(4096), b""):
             sha256.update(chunk)

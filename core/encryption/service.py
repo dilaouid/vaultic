@@ -1,12 +1,16 @@
+import hashlib
+import hmac
 import json
 import os
 import base64
+from pathlib import Path
 
 from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.backends import default_backend
+from cryptography.hazmat.primitives import hashes
 
-from pathlib import Path
+from core.utils import console
 from core.encryption.key_derivation import load_or_generate_key_via_passphrase
 
 class EncryptionService:
@@ -24,13 +28,13 @@ class EncryptionService:
         Args:
             key_path (str): Path to the symmetric encryption key file (.key).
         """
-        self.meta_path = meta_path.expanduser()
+        self.meta_path = Path(meta_path).expanduser()
         self.passphrase = passphrase.encode()
         self.meta = self.load_or_create_metadata()
-        self.key = self.derive_key()
-        self.fernet = Fernet(self.key)
-        self.verify_passphrase()
         self.salt = self.meta["salt"]
+        self.key = self.derive_key("ENCRYPT")
+        self.hmac_key = self.derive_key("HMAC")
+        self.fernet = Fernet(self.key)
 
     @staticmethod
     def generate_key() -> bytes:
@@ -42,17 +46,16 @@ class EncryptionService:
         """
         return Fernet.generate_key()
     
-    def derive_key(self) -> bytes:
+    def derive_key(self, purpose: str) -> bytes:
         salt = bytes.fromhex(self.meta["salt"])
         kdf = PBKDF2HMAC(
-            algorithm=__import__("cryptography.hazmat.primitives.hashes").hazmat.primitives.hashes.SHA256(),
+            algorithm=hashes.SHA256(),
             length=32,
             salt=salt,
-            iterations=390000,
+            iterations=390_000,
             backend=default_backend()
         )
-        return base64.urlsafe_b64encode(kdf.derive(self.passphrase))
-
+        return base64.urlsafe_b64encode(kdf.derive(self.passphrase + purpose.encode()))
 
     def save_key(self, key: bytes) -> None:
         """
@@ -99,10 +102,18 @@ class EncryptionService:
             input_path (str): Path to the original (plaintext) file.
             output_path (str): Path where the encrypted file will be saved.
         """
-        with open(input_path, 'rb') as file:
-            encrypted = self.fernet.encrypt(file.read())
-        with open(output_path, 'wb') as file:
-            file.write(encrypted)
+        input_path = Path(input_path)
+        output_path = Path(output_path)
+        hmac_path = output_path.with_suffix(output_path.suffix + ".hmac")
+
+        content = input_path.read_bytes()
+        encrypted = self.fernet.encrypt(content)
+        output_path.write_bytes(encrypted)
+
+        # 🔐 Generate the HMAC of the encrypted file
+        tag = hmac.new(self.hmac_key, encrypted, hashlib.sha256).digest()
+        hmac_path.write_bytes(tag)
+        console.print(f"[cyan]🔏 HMAC saved:[/cyan] {hmac_path}")
 
     def decrypt_file(self, input_path: str, output_path: str) -> None:
         """
@@ -112,10 +123,25 @@ class EncryptionService:
             input_path (str): Path to the encrypted input file.
             output_path (str): Path where the decrypted file will be saved.
         """
-        with open(input_path, 'rb') as file:
-            decrypted = self.fernet.decrypt(file.read())
-        with open(output_path, 'wb') as file:
-            file.write(decrypted)
+        input_path = Path(input_path)
+        output_path = Path(output_path)
+        hmac_path = input_path.with_suffix(input_path.suffix + ".hmac")
+
+        encrypted = input_path.read_bytes()
+
+        # ✅ Check HMAC
+        if not hmac_path.exists():
+            raise ValueError("Missing HMAC file for integrity check")
+
+        expected_tag = hmac_path.read_bytes()
+        actual_tag = hmac.new(self.hmac_key, encrypted, hashlib.sha256).digest()
+
+        if not hmac.compare_digest(expected_tag, actual_tag):
+            raise ValueError("HMAC mismatch: file may have been tampered with")
+
+        decrypted = self.fernet.decrypt(encrypted)
+        output_path.write_bytes(decrypted)
+        console.print(f"[green]✅ Decrypted with verified integrity:[/green] {output_path}")
 
     def load_or_create_metadata(self) -> dict:
         if self.meta_path.exists():

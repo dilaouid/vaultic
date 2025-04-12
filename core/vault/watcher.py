@@ -48,8 +48,7 @@ class VaulticWatcher(FileSystemEventHandler):
             console.print(f"[yellow]⚠ Ignored file outside watch dir: {src_path}[/yellow]")
             return
 
-        # ✅ Wait for file to be fully written
-        time.sleep(0.2)  # Adjust as needed
+        time.sleep(0.2)  # Wait for file to be fully written
 
         if src_path.stat().st_size == 0:
             console.print(f"[yellow]⚠ Skipping empty file:[/yellow] {rel_path}")
@@ -72,47 +71,17 @@ class VaulticWatcher(FileSystemEventHandler):
             console.print(f"[red]⚠️ Failed to delete original file: {e}[/red]")
         console.print('-------------------------------')
 
-def ensure_meta_test_valid(enc_service: EncryptionService, encrypted_dir: Path):
-    test_path = encrypted_dir / ".meta-test"
-
-    if not test_path.exists():
-        if any(encrypted_dir.rglob("*.enc")):
-            console.print("[red bold]❌ .meta-test is missing and encrypted files already exist. Aborting.[/red bold]")
-            raise typer.Exit(1)
-
-        # First-time generation
-        token = f"vaultic-test-{uuid.uuid4().hex[:8]}"
-        test_path.write_text(token)
-        enc_service.encrypt_file(str(test_path), str(test_path) + ".enc")
-        test_path.unlink()
-        console.print("[green]✅ .meta-test generated and encrypted.[/green]")
-        return
-
-    encrypted_test = str(test_path) + ".enc"
-    if not Path(encrypted_test).exists():
-        console.print("[red]❌ .meta-test.enc missing while .meta-test exists. Aborting.[/red]")
-        raise typer.Exit(1)
-
-    try:
-        decrypted = enc_service.fernet.decrypt(Path(encrypted_test).read_bytes()).decode()
-        if not decrypted.startswith("vaultic-test"):
-            raise ValueError("Wrong prefix")
-    except Exception as e:
-        console.print(f"[red bold]❌ Invalid passphrase for given salt! Decryption failed: {e}[/red bold]")
-        raise typer.Exit(1)
-
-    console.print("[green]🔐 Verified passphrase matches .meta-test file.[/green]")
 
 def start_vaultic_watcher(passphrase: str, meta_path: Optional[Union[str, Path]] = None):
     vault_dir = Path(".vaultic")
     meta_path = Path(meta_path).expanduser() if meta_path else Path(".vaultic/keys/vaultic_meta.json")
+
     enc_service = EncryptionService(passphrase, meta_path)
+    enc_service.verify_passphrase()
 
     salt = enc_service.salt
     subfolder = hashlib.sha256(salt.encode()).hexdigest()[:12]
     encrypted_dir = Path(".vaultic/encrypted") / subfolder
-
-    ensure_meta_test_valid(enc_service, encrypted_dir)
 
     console.print(f"👀  [blue]Watching: {vault_dir.resolve()} for changes…[/blue]")
     event_handler = VaulticWatcher(vault_dir, encrypted_dir, enc_service)

@@ -8,7 +8,7 @@ import json
 
 DEFAULT_META_PATH = Path(".vaultic/keys/vaultic_meta.json")
 PBKDF2_ITERATIONS = 390_000
-KEY_SIZE = 32 
+KEY_SIZE = 32
 
 def derive_key_from_passphrase(passphrase: str, salt: bytes) -> bytes:
     kdf = PBKDF2HMAC(
