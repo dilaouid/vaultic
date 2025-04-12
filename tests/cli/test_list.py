@@ -48,7 +48,8 @@ def test_list_index_fails_when_missing():
     assert result.exit_code != 0
     assert "❌" in result.output
 
-def test_list_index_json_output():
+def test_list_index_json_output(monkeypatch):
+    monkeypatch.setenv("FORCE_COLOR", "0")
     with tempfile.TemporaryDirectory() as tmp_dir:
         tmp = Path(tmp_dir)
 

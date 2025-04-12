@@ -20,7 +20,7 @@ def list_files(
 
     if json_output:
         import json
-        console.print(json.dumps(index, indent=2))
+        console.print(json.dumps(index, indent=2), markup=False, highlight=False)
         return
 
     table = Table(title="🔐 Vaultic Tracked Files")
