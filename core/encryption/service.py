@@ -29,6 +29,7 @@ class EncryptionService:
         self.meta = self.load_or_create_metadata()
         self.key = self.derive_key()
         self.fernet = Fernet(self.key)
+        self.salt = self.meta["salt"]
 
     @staticmethod
     def generate_key() -> bytes:

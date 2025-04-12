@@ -1,4 +1,6 @@
 import time
+import hashlib
+
 from pathlib import Path
 from typing import Optional, Union
 from watchdog.observers import Observer
@@ -71,11 +73,15 @@ class VaulticWatcher(FileSystemEventHandler):
 
 def start_vaultic_watcher(passphrase: str, meta_path: Optional[Union[str, Path]] = None):
     vault_dir = Path(".vaultic")
-    encrypted_dir = vault_dir / "encrypted"
     meta_path = Path(meta_path).expanduser() if meta_path else Path(".vaultic/keys/vaultic_meta.json")
 
-    console.print(f"👀  [blue]Watching: {vault_dir.resolve()} for changes…[/blue]")
     enc_service = EncryptionService(passphrase, meta_path)
+
+    salt = enc_service.salt
+    subfolder = hashlib.sha256(salt.encode()).hexdigest()[:12]
+    encrypted_dir = Path(".vaultic/encrypted") / subfolder
+
+    console.print(f"👀  [blue]Watching: {vault_dir.resolve()} for changes…[/blue]")
     event_handler = VaulticWatcher(vault_dir, encrypted_dir, enc_service)
 
     observer = Observer()
