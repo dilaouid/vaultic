@@ -1,6 +1,6 @@
 import typer
 from pathlib import Path
-from rich import print
+from core.utils import console
 from core.config import Config
 from core.encryption.service import EncryptionService
 from core.indexing.indexer import generate_index, save_index, load_index
@@ -27,7 +27,7 @@ def backup_dir(
     storage = get_provider(provider_name)
 
     if not source_dir.exists() or not source_dir.is_dir():
-        print("[red]❌ Source directory does not exist or is not a folder.[/red]")
+        console.print("[red]❌ Source directory does not exist or is not a folder.[/red]")
         raise typer.Exit(1)
 
     # Step 1: Load previous index if it exists
@@ -35,10 +35,10 @@ def backup_dir(
     index_path = Path(index_path)
     if index_path.exists():
         old_index = load_index(index_path)
-        print("[blue]🔁 Existing index loaded.[/blue]")
+        console.print("[blue]🔁 Existing index loaded.[/blue]")
 
     # Step 2: Generate new index
-    print(f"[green]📦 Indexing folder:[/green] {source_dir}")
+    console.print(f"[green]📦 Indexing folder:[/green] {source_dir}")
     new_index = generate_index(source_dir, encrypted_dir)
 
     # Step 3: Compare + encrypt modified/new files
@@ -57,15 +57,15 @@ def backup_dir(
             output_path = Path(file["encrypted_path"])
             output_path.parent.mkdir(parents=True, exist_ok=True)
 
-            print(f"[yellow]🔐 Encrypting:[/yellow] {path}")
+            console.print(f"[yellow]🔐 Encrypting:[/yellow] {path}")
             enc.encrypt_file(str(input_path), str(output_path))
             storage.upload_file(output_path, str(path) + ".enc")
-            print(f"[blue]☁️ Uploaded:[/blue] {path}.enc")
+            console.print(f"[blue]☁️ Uploaded:[/blue] {path}.enc")
 
     # Step 4: Save new index
     save_index(new_index, index_path)
-    print(f"\n[green]✅ Index saved to:[/green] {index_path}")
-    print(f"[cyan]🗃 {updated_files} file(s) encrypted.[/cyan]")
+    console.print(f"\n[green]✅ Index saved to:[/green] {index_path}")
+    console.print(f"[cyan]🗃 {updated_files} file(s) encrypted.[/cyan]")
 
     if updated_files == 0:
-        print("[grey]No changes detected. Everything is up to date.[/grey]")
+        console.print("[grey]No changes detected. Everything is up to date.[/grey]")

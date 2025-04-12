@@ -1,6 +1,6 @@
 import typer
 from pathlib import Path
-from rich import print
+from core.utils import console
 from rich.table import Table
 from core.indexing.indexer import load_index
 
@@ -13,14 +13,14 @@ def list_files(
     """
     path = Path(index_path).resolve()
     if not path.exists():
-        print(f"[red]❌ Index file not found at {path}[/red]")
+        console.print(f"[red]❌ Index file not found at {path}[/red]")
         raise typer.Exit(1)
 
     index = load_index(path)
 
     if json_output:
         import json
-        print(json.dumps(index, indent=2))
+        console.print(json.dumps(index, indent=2))
         return
 
     table = Table(title="🔐 Vaultic Tracked Files")
@@ -30,4 +30,4 @@ def list_files(
     for f in index["files"]:
         table.add_row(f["relative_path"], f["hash"][:10] + "…")
 
-    print(table)
+    console.print(table)

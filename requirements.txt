@@ -1,6 +1,7 @@
 # Core encryption
 cryptography>=41.0.0
 python-dotenv>=1.0.0
+watchdog>=3.0.0
 
 # CLI
 typer[all]>=0.9.0

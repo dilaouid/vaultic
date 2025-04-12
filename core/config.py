@@ -8,7 +8,7 @@ class Config:
     BACKUP_DIR = os.getenv("VAULTIC_BACKUP_DIR", "./data/")
     INDEX_FILE = os.getenv("VAULTIC_INDEX_FILE", "./data/.vaultic/index.json")
     LOG_FILE = os.getenv("VAULTIC_LOG_FILE", "./data/.vaultic/backup.log")
-    KEY_PATH = os.getenv("VAULTIC_ENCRYPTION_KEY_PATH", "~/.vaultic_key.pem")
+    KEY_PATH = os.getenv("VAULTIC_ENCRYPTION_KEY_PATH", ".vaultic/keys/vaultic_key.pem")
     GUI_TEMP_LIFETIME_SECONDS = os.getenv("GUI_TEMP_LIFETIME_SECONDS")
 
     # Provider-specific configs
