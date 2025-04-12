@@ -47,3 +47,31 @@ def test_list_index_fails_when_missing():
     ])
     assert result.exit_code != 0
     assert "❌" in result.output
+
+def test_list_index_json_output():
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp = Path(tmp_dir)
+
+        index_data = {
+            "files": [
+                {
+                    "relative_path": "vault/data.json",
+                    "encrypted_path": "/tmp/encrypted/vault/data.json.enc",
+                    "hash": "deadbeef12345678"
+                }
+            ]
+        }
+
+        index_path = tmp / "index.json"
+        save_index(index_data, index_path)
+
+        result = runner.invoke(app, [
+            "list",
+            "--index-path", str(index_path),
+            "--json"
+        ])
+
+        assert result.exit_code == 0
+        assert "vault/data.json" in result.output
+        assert "deadbeef" in result.output
+        assert result.output.strip().startswith("{")  # JSON
