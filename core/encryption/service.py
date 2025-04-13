@@ -13,7 +13,7 @@ from cryptography.hazmat.primitives import hashes
 
 from core.utils import console
 
-
+MAGIC_HEADER = b"VAULTICv1\n"
 class EncryptionService:
     """
     EncryptionService handles file encryption and decryption using Fernet (AES) symmetric encryption,
@@ -73,7 +73,7 @@ class EncryptionService:
         compressed_content = zlib.compress(original_content, level=9)
 
         encrypted = self.fernet.encrypt(compressed_content)
-        output_path.write_bytes(encrypted)
+        output_path.write_bytes(MAGIC_HEADER + encrypted)
 
         tag = hmac.new(self.hmac_key, encrypted, hashlib.sha256).digest()
         hmac_path.write_bytes(tag)
@@ -88,13 +88,18 @@ class EncryptionService:
             output_path (str): Path to save the decrypted file.
 
         Raises:
-            ValueError: If HMAC integrity check fails.
+            ValueError: If HMAC integrity check fails or magic header is missing.
         """
         input_path = Path(input_path)
         output_path = Path(output_path)
         hmac_path = input_path.with_suffix(input_path.suffix + ".hmac")
 
         encrypted = input_path.read_bytes()
+
+        if not encrypted.startswith(MAGIC_HEADER):
+            raise ValueError("Invalid or missing Vaultic magic header")
+
+        encrypted = encrypted[len(MAGIC_HEADER):]
 
         if not hmac_path.exists():
             raise ValueError("Missing HMAC file for integrity check")

@@ -41,7 +41,7 @@ def test_hmac_detection_on_tampering():
 
         enc.write_bytes(b"tampered data")
 
-        with pytest.raises(ValueError, match="HMAC mismatch"):
+        with pytest.raises(ValueError, match="magic header"):
             service.decrypt_file(enc, dec)
 
 
