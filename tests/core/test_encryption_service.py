@@ -4,11 +4,9 @@ import pytest
 
 from core.encryption.service import EncryptionService
 
-
 def create_sample_file(path: Path, content: bytes = b"Vaultic Test Content"):
     path.write_bytes(content)
     return content
-
 
 def test_encrypt_decrypt_cycle():
     with tempfile.TemporaryDirectory() as tmp_dir:
@@ -120,3 +118,21 @@ def test_multiple_encryptions_produce_different_outputs():
         service.encrypt_file(f2, e2)
 
         assert e1.read_bytes() != e2.read_bytes()
+
+def test_hmac_detection_if_tag_modified():
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp = Path(tmp_dir)
+        meta = tmp / "meta.json"
+        plain = tmp / "plain.txt"
+        enc = tmp / "plain.txt.enc"
+        dec = tmp / "plain_decrypted.txt"
+
+        create_sample_file(plain)
+        service = EncryptionService("test123", meta)
+        service.encrypt_file(plain, enc)
+
+        hmac_path = enc.with_suffix(enc.suffix + ".hmac")
+        hmac_path.write_bytes(b"bad hmac data")
+
+        with pytest.raises(ValueError, match="HMAC mismatch"):
+            service.decrypt_file(enc, dec)
