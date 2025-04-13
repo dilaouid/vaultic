@@ -8,7 +8,7 @@ from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 from core.encryption.service import EncryptionService
 from core.config import Config
-from core.utils import console
+from core.utils import console, secure_delete
 from core.storage.factory import get_provider
 
 class VaulticWatcher(FileSystemEventHandler):
@@ -64,7 +64,7 @@ class VaulticWatcher(FileSystemEventHandler):
         self.provider.upload_file(encrypted_path, str(rel_path) + ".enc")
 
         try:
-            src_path.unlink()
+            secure_delete(src_path)
             console.print(f"[grey]🧹 Deleted original: {rel_path}[/grey]")
         except Exception as e:
             console.print(f"[red]⚠️ Failed to delete original file: {e}[/red]")
