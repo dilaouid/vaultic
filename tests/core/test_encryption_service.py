@@ -1,136 +1,122 @@
-import base64
-import os
-
-from cryptography.fernet import Fernet
-from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
-from cryptography.hazmat.backends import default_backend
+import tempfile
 from pathlib import Path
+import pytest
 
-class EncryptionService:
-    """
-    A service class for encrypting and decrypting files using symmetric encryption (Fernet/AES).
+from core.encryption.service import EncryptionService
 
-    This class manages a local symmetric key, allowing for file-level encryption
-    and decryption with consistent and secure storage of the key file.
-    """
 
-    def __init__(self, key_path: str, password: str = None):
-        """
-        Initializes the EncryptionService.
+def create_sample_file(path: Path, content: bytes = b"Vaultic Test Content"):
+    path.write_bytes(content)
+    return content
 
-        Args:
-            key_path (str): Path to the symmetric encryption key file (.key).
-            password (str, optional): Passphrase to derive the encryption key. Overrides stored key.
-        """
-        self.key_path = Path(key_path).expanduser()
-        self.password = password
-        self.key = self.load_or_create_key()
-        self.fernet = Fernet(self.key)
 
-    @staticmethod
-    def generate_key() -> bytes:
-        """
-        Generates a new symmetric encryption key using Fernet (AES-128 under the hood).
+def test_encrypt_decrypt_cycle():
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp = Path(tmp_dir)
+        meta = tmp / "meta.json"
+        plain = tmp / "plain.txt"
+        enc = tmp / "plain.txt.enc"
+        dec = tmp / "plain_decrypted.txt"
 
-        Returns:
-            bytes: The newly generated encryption key.
-        """
-        return Fernet.generate_key()
+        content = create_sample_file(plain, b"Test content")
+        service = EncryptionService(passphrase="vaultic", meta_path=meta)
+        service.encrypt_file(plain, enc)
+        service.decrypt_file(enc, dec)
 
-    @staticmethod
-    def derive_key_from_password(password: str, salt: bytes) -> bytes:
-        """
-        Derives a Fernet-compatible key from a password using Scrypt.
+        assert dec.read_bytes() == content
+        assert (tmp / "plain.txt.enc.hmac").exists()
 
-        Args:
-            password (str): The passphrase.
-            salt (bytes): A unique salt.
 
-        Returns:
-            bytes: A 32-byte base64-encoded key.
-        """
-        kdf = Scrypt(
-            salt=salt,
-            length=32,
-            n=2**14,
-            r=8,
-            p=1,
-            backend=default_backend()
-        )
-        return base64.urlsafe_b64encode(kdf.derive(password.encode()))
+def test_hmac_detection_on_tampering():
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp = Path(tmp_dir)
+        meta = tmp / "meta.json"
+        plain = tmp / "plain.txt"
+        enc = tmp / "plain.txt.enc"
+        dec = tmp / "plain_decrypted.txt"
 
-    def save_key(self, key: bytes, salt: bytes = None) -> None:
-        """
-        Saves the encryption key to the key file path.
+        create_sample_file(plain)
+        service = EncryptionService("test123", meta)
+        service.encrypt_file(plain, enc)
 
-        Args:
-            key (bytes): The encryption key to save.
-            salt (bytes, optional): Optional salt to prepend.
-        """
-        self.key_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(self.key_path, 'wb') as f:
-            if salt:
-                f.write(salt + b'\n' + key)
-            else:
-                f.write(key)
+        enc.write_bytes(b"tampered data")
 
-    def load_key(self) -> bytes:
-        """
-        Loads the encryption key from the key file.
+        with pytest.raises(ValueError, match="HMAC mismatch"):
+            service.decrypt_file(enc, dec)
 
-        Returns:
-            bytes: The loaded encryption key.
-        """
-        with open(self.key_path, 'rb') as f:
-            data = f.read()
 
-        if self.password:
-            salt, encoded_key = data.split(b'\n', 1)
-            return self.derive_key_from_password(self.password, salt)
-        return data
+def test_missing_hmac_file_raises_error():
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp = Path(tmp_dir)
+        meta = tmp / "meta.json"
+        plain = tmp / "plain.txt"
+        enc = tmp / "plain.txt.enc"
+        dec = tmp / "plain_decrypted.txt"
 
-    def load_or_create_key(self) -> bytes:
-        """
-        Loads the encryption key if it exists, or creates and saves a new one if not.
+        create_sample_file(plain)
+        service = EncryptionService("test123", meta)
+        service.encrypt_file(plain, enc)
 
-        Returns:
-            bytes: The encryption key.
-        """
-        if self.key_path.exists():
-            return self.load_key()
+        enc.with_suffix(".enc.hmac").unlink()
 
-        if self.password:
-            salt = os.urandom(16)
-            derived = self.derive_key_from_password(self.password, salt)
-            self.save_key(derived, salt)
-            return derived
+        with pytest.raises(ValueError, match="Missing HMAC"):
+            service.decrypt_file(enc, dec)
 
-        key = self.generate_key()
-        self.save_key(key)
-        return key
 
-    def encrypt_file(self, input_path: str, output_path: str) -> None:
-        """
-        Encrypts a file and writes the encrypted content to a new file.
+def test_salt_is_created_and_loaded():
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        meta = Path(tmp_dir) / "vaultic_meta.json"
+        EncryptionService("checksalt", meta)
 
-        Args:
-            input_path (str): Path to the original (plaintext) file.
-            output_path (str): Path where the encrypted file will be saved.
-        """
-        with open(input_path, 'rb') as file:
-            encrypted = self.fernet.encrypt(file.read())
-        with open(output_path, 'wb') as file:
-            file.write(encrypted)
+        assert meta.exists()
+        meta_content = meta.read_text()
+        assert "salt" in meta_content
 
-    def decrypt_file(self, input_path: str, output_path: str) -> None:
-        """
-        Decrypts an encrypted file and writes the decrypted content to a new file.
 
-        Args:
-            input_path (str): Path to the encrypted input file.
-            output_path (str): Path where the decrypted file will be saved.
-        """
-        with open(input_path, 'rb') as file:
-            decrypted = self.fernet.decrypt(file.read())
-        with open(output_path, 'wb') as file:
-            file.write(decrypted)
+def test_passphrase_validation_correct_vs_wrong():
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        meta = Path(tmp_dir) / "vaultic_meta.json"
+        EncryptionService("correct", meta).create_meta_test_file()
+
+        # Correct
+        EncryptionService("correct", meta).verify_passphrase()
+
+        # Wrong
+        with pytest.raises(ValueError, match="Invalid passphrase"):
+            EncryptionService("wrong", meta).verify_passphrase()
+
+
+def test_compression_is_effective():
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp = Path(tmp_dir)
+        meta = tmp / "meta.json"
+        file = tmp / "redundant.txt"
+        encrypted = tmp / "redundant.txt.enc"
+
+        repeated_content = b"X" * 1000
+        create_sample_file(file, repeated_content)
+
+        service = EncryptionService("compress", meta)
+        service.encrypt_file(file, encrypted)
+
+        assert encrypted.stat().st_size < len(repeated_content)
+
+
+def test_multiple_encryptions_produce_different_outputs():
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp = Path(tmp_dir)
+        meta = tmp / "meta.json"
+        f1 = tmp / "a.txt"
+        f2 = tmp / "b.txt"
+        e1 = tmp / "a.txt.enc"
+        e2 = tmp / "b.txt.enc"
+
+        content = b"Same content for both"
+        create_sample_file(f1, content)
+        create_sample_file(f2, content)
+
+        service = EncryptionService("randomness", meta)
+        service.encrypt_file(f1, e1)
+        service.encrypt_file(f2, e2)
+
+        assert e1.read_bytes() != e2.read_bytes()

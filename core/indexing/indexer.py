@@ -1,7 +1,9 @@
 import json
 from pathlib import Path
-from typing import List, Dict
+from typing import Dict
+
 from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.backends import default_backend
 
 
 def hash_file(path: Path) -> str:
@@ -14,11 +16,11 @@ def hash_file(path: Path) -> str:
     Returns:
         str: SHA256 hash as hex string.
     """
-    sha256 = hashes.SHA256(),
+    digest = hashes.Hash(hashes.SHA256(), backend=default_backend())
     with path.open("rb") as f:
         for chunk in iter(lambda: f.read(4096), b""):
-            sha256.update(chunk)
-    return sha256.hexdigest()
+            digest.update(chunk)
+    return digest.finalize().hex()
 
 
 def generate_index(source_dir: Path, encrypted_dir: Path) -> Dict:

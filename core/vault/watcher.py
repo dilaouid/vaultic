@@ -3,8 +3,7 @@ import hashlib
 
 from pathlib import Path
 from typing import Optional, Union
-import uuid
-import typer
+
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 from core.encryption.service import EncryptionService
