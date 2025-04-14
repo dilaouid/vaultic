@@ -1,5 +1,4 @@
 import time
-import hashlib
 
 from pathlib import Path
 from typing import Optional, Union
@@ -11,15 +10,16 @@ from core.config import Config
 from core.utils import console
 from core.utils.dos import can_process_file, register_file_processed, throttle
 
+from core.vault.selector import select_or_create_vault
 from core.vault.file_handler import handle_file
 
 from core.storage.factory import get_provider
 
 class VaulticWatcher(FileSystemEventHandler):
     """
-        VaulticWatcher monitors the .vaultic/ directory for new or modified files.
-        When a file is added, it is encrypted, moved, and indexed in real-time.
-        Internal Vaultic files (e.g., /encrypted, /keys, or index.json) are ignored.
+    VaulticWatcher monitors the .vaultic/ directory for new or modified files.
+    When a file is added, it is encrypted, moved, and indexed in real-time.
+    Internal Vaultic files (e.g., /encrypted, /keys, or index.json) are ignored.
     """
     def __init__(self, watch_dir: Path, encrypted_dir: Path, enc_service: EncryptionService):
         self.watch_dir = watch_dir.resolve()
@@ -41,8 +41,8 @@ class VaulticWatcher(FileSystemEventHandler):
 
     def _encrypt_and_upload(self, filepath):
         """
-            Encrypts a given file and uploads it to the configured storage provider.
-            Handles deduplication, throttling, HMAC generation, secure deletion, and index update.
+        Encrypts a given file and uploads it to the configured storage provider.
+        Handles deduplication, throttling, HMAC generation, secure deletion, and index update.
         """
         if not can_process_file():
             console.print("[yellow]⏱ Too many files, throttling…[/yellow]")
@@ -70,34 +70,46 @@ class VaulticWatcher(FileSystemEventHandler):
         handle_file(src_path, rel_path, self.enc_service, self.encrypted_dir, self.provider)
 
 
-def start_vaultic_watcher(passphrase: str, meta_path: Optional[Union[str, Path]] = None):
+def start_vaultic_watcher(passphrase: str, meta_path: Optional[Path] = None):
+    """
+    Start watching a vault directory for changes and encrypt files automatically.
+    
+    Args:
+        passphrase: The encryption passphrase
+        meta_path: Optional path to the metadata file. If provided, vault selection is skipped.
+    """
     vault_dir = Path(".vaultic")
-    meta_path = Path(meta_path).expanduser() if meta_path else Path(".vaultic/keys/vaultic_meta.json")
-
+    keys_dir = vault_dir / "keys"
+    encrypted_root = vault_dir / "encrypted"
+    
+    # Only select a vault if meta_path is not provided
+    if meta_path is None:
+        subfolder, meta_path = select_or_create_vault(keys_dir)
+        console.print(f"[green]🔒 Selected vault:[/green] {subfolder}")
+    else:
+        # Extract subfolder from meta_path
+        subfolder = meta_path.stem
+    
+    # Initialize encryption service
     enc_service = EncryptionService(passphrase, meta_path)
     enc_service.verify_passphrase()
 
-    salt = enc_service.salt
-    subfolder = hashlib.sha256(salt.encode()).hexdigest()[:12]
-    encrypted_dir = Path(".vaultic/encrypted") / subfolder
-
-    # Ensure encrypted_dir exists before writing lock
-    (encrypted_dir).mkdir(parents=True, exist_ok=True)
+    # Set up encrypted directory
+    encrypted_dir = encrypted_root / subfolder
+    encrypted_dir.mkdir(parents=True, exist_ok=True)
 
     # Create lock files
     (vault_dir / ".vaultic.lock").write_text(
         "🔒 Managed by Vaultic. Do not modify manually.\n"
-        "Here, you can paste / write multiple files, and it will go in the appropriate encrypted folder.\n"
-        "Do not paste anything inside /keys or /encrypted.\n\n"
-        "--------\n\nFiles placed here will be auto-deleted and encrypted",
+        "Here, you can paste files. They will be encrypted automatically.\n"
+        "Do not place anything in /keys or /encrypted.",
         encoding="UTF-8"
     )
-
     (encrypted_dir / ".vaultic.lock").write_text(
-        "🔒 This encrypted area is managed by Vaultic.",
-        encoding="UTF-8"
+        "🔒 This encrypted area is managed by Vaultic.", encoding="UTF-8"
     )
 
+    # Set up and start the file watcher
     console.print(f"👀  [blue]Watching: {vault_dir.resolve()} for changes…[/blue]")
     event_handler = VaulticWatcher(vault_dir, encrypted_dir, enc_service)
 

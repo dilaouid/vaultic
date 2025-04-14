@@ -1,16 +1,29 @@
-from typing import Optional
+#!/usr/bin/env python3
 import typer
-from pathlib import Path
-from core.vault.watcher import start_vaultic_watcher
 
-app = typer.Typer(help="Vaultic CLI entrypoint. Use this to start file monitoring.")
+from cli.commands.backup import app as backup_app
+from cli.commands.restore import app as restore_app
+from cli.commands.list import app as list_app
+from cli.commands.file import app as file_app
+from cli.commands.status import app as status_app
+from cli.commands.watch import app as watch_app
+from cli.commands.config import app as config_app
+from cli.commands.create import app as create_app
 
-@app.command()
-def watch(
-    passphrase: str = typer.Option(..., prompt=True, hide_input=True, help="Your encryption passphrase."),
-    meta_path: Optional[str] = typer.Option(None, help="Path to vaultic_meta.json (salt and config)")
-):
-    start_vaultic_watcher(passphrase=passphrase, meta_path=meta_path)
+app = typer.Typer(
+    help="Vaultic - Encrypted Incremental Backups to the Cloud",
+    add_completion=False
+)
+
+# Add subcommands
+app.add_typer(backup_app, name="backup", help="Backup files or directories")
+app.add_typer(restore_app, name="restore", help="Restore files from backup")
+app.add_typer(list_app, name="list", help="List files in the backup index")
+app.add_typer(file_app, name="file", help="Decrypt a file directly without using the backup index")
+app.add_typer(status_app, name="status", help="Show status of current Vaultic configuration")
+app.add_typer(watch_app, name="watch", help="Start a file system watcher that automatically encrypts files")
+app.add_typer(config_app, name="config", help="Manage Vaultic configuration")
+app.add_typer(create_app, name="create", help="Create a new vault")
 
 if __name__ == "__main__":
     app()
