@@ -1,13 +1,13 @@
-import os
 import time
 
 from collections import deque
 
 from core.utils import console
+from core.config import Config
 
 file_timestamps = deque()
 error_timestamps = deque()
-MAX_FILES_PER_MINUTE = int(os.getenv("VAULTIC_MAX_FILES_PER_MIN", "100"))
+MAX_FILES_PER_MINUTE = Config.VAULTIC_MAX_FILES_PER_MIN
 MAX_ERRORS = 10
 ERROR_WINDOW = 60 # seconds
 

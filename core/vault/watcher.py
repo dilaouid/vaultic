@@ -1,4 +1,3 @@
-import os
 import time
 import hashlib
 
@@ -63,7 +62,7 @@ class VaulticWatcher(FileSystemEventHandler):
             console.print(f"[yellow]⚠ Skipping empty file:[/yellow] {rel_path}")
             return
 
-        MAX_FILE_SIZE_MB = int(os.getenv("VAULTIC_MAX_FILE_MB", "500"))
+        MAX_FILE_SIZE_MB = Config.VAULTIC_MAX_FILE_MB
         if src_path.stat().st_size > MAX_FILE_SIZE_MB * 1024 * 1024:
             console.print(f"[red]🚫 Skipped too large:[/red] {src_path.name}")
             return
