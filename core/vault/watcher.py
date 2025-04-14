@@ -1,3 +1,4 @@
+import os
 import time
 import hashlib
 
@@ -8,7 +9,9 @@ from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 from core.encryption.service import EncryptionService
 from core.config import Config
-from core.utils import console, secure_delete
+from core.utils import console
+from core.utils.dos import can_process_file, register_file_processed, throttle, register_error
+from core.utils.security import secure_delete, is_rotational
 from core.storage.factory import get_provider
 
 class VaulticWatcher(FileSystemEventHandler):
@@ -31,6 +34,13 @@ class VaulticWatcher(FileSystemEventHandler):
         self._encrypt_and_upload(event.src_path)
 
     def _encrypt_and_upload(self, filepath):
+        if not can_process_file():
+            console.print("[yellow]⏱ Too many files, throttling…[/yellow]")
+            return
+
+        register_file_processed()
+        throttle()
+
         src_path = Path(filepath).resolve()
 
         if not src_path.exists():
@@ -53,6 +63,11 @@ class VaulticWatcher(FileSystemEventHandler):
             console.print(f"[yellow]⚠ Skipping empty file:[/yellow] {rel_path}")
             return
 
+        MAX_FILE_SIZE_MB = int(os.getenv("VAULTIC_MAX_FILE_MB", "500"))
+        if src_path.stat().st_size > MAX_FILE_SIZE_MB * 1024 * 1024:
+            console.print(f"[red]🚫 Skipped too large:[/red] {src_path.name}")
+            return
+
         encrypted_path = self.encrypted_dir / rel_path
         encrypted_path = encrypted_path.with_suffix(encrypted_path.suffix + ".enc")
         encrypted_path.parent.mkdir(parents=True, exist_ok=True)
@@ -64,10 +79,14 @@ class VaulticWatcher(FileSystemEventHandler):
         self.provider.upload_file(encrypted_path, str(rel_path) + ".enc")
 
         try:
-            secure_delete(src_path)
+            if is_rotational(src_path):
+                secure_delete(src_path, passes=3)
+            else:
+                src_path.unlink()
             console.print(f"[grey]🧹 Deleted original: {rel_path}[/grey]")
         except Exception as e:
             console.print(f"[red]⚠️ Failed to delete original file: {e}[/red]")
+            register_error()
         console.print('-------------------------------')
 
 
