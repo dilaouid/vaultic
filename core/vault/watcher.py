@@ -1,20 +1,16 @@
-import json
 import time
 import hashlib
 
 from pathlib import Path
 from typing import Optional, Union
 
-import typer
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 from core.encryption.service import EncryptionService
 from core.config import Config
 from core.utils import console
-from core.utils.dos import can_process_file, register_file_processed, throttle, register_error
-from core.utils.security import secure_delete, is_rotational
+from core.utils.dos import can_process_file, register_file_processed, throttle
 
-from core.vault.index_writer import encrypt_index
 from core.vault.file_handler import handle_file
 
 from core.storage.factory import get_provider
@@ -84,8 +80,23 @@ def start_vaultic_watcher(passphrase: str, meta_path: Optional[Union[str, Path]]
     salt = enc_service.salt
     subfolder = hashlib.sha256(salt.encode()).hexdigest()[:12]
     encrypted_dir = Path(".vaultic/encrypted") / subfolder
-    (vault_dir / ".vaultic.lock").write_text("🔒 Managed by Vaultic. Do not modify manually.\nHere, you can paste / write multiple files, and it will go in the appropriate encrypted folder.\nDo not paste anything inside /keys or /encrypted.\n\n--------\n\nFiles placed here will be auto-deleted and encrypted", encoding="UTF-8")
-    (encrypted_dir / ".vaultic.lock").write_text("🔒 This encrypted area is managed by Vaultic.", encoding="UTF-8")
+
+    # Ensure encrypted_dir exists before writing lock
+    (encrypted_dir).mkdir(parents=True, exist_ok=True)
+
+    # Create lock files
+    (vault_dir / ".vaultic.lock").write_text(
+        "🔒 Managed by Vaultic. Do not modify manually.\n"
+        "Here, you can paste / write multiple files, and it will go in the appropriate encrypted folder.\n"
+        "Do not paste anything inside /keys or /encrypted.\n\n"
+        "--------\n\nFiles placed here will be auto-deleted and encrypted",
+        encoding="UTF-8"
+    )
+
+    (encrypted_dir / ".vaultic.lock").write_text(
+        "🔒 This encrypted area is managed by Vaultic.",
+        encoding="UTF-8"
+    )
 
     console.print(f"👀  [blue]Watching: {vault_dir.resolve()} for changes…[/blue]")
     event_handler = VaulticWatcher(vault_dir, encrypted_dir, enc_service)

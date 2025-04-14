@@ -146,12 +146,14 @@ class EncryptionService:
             dict: Metadata with salt and version.
         """
         if self.meta_path.exists():
+            self._is_new = False
             return json.loads(self.meta_path.read_text())
 
         salt = os.urandom(16).hex()
         meta = {"salt": salt, "version": 1}
         self.meta_path.parent.mkdir(parents=True, exist_ok=True)
         self.meta_path.write_text(json.dumps(meta))
+        self._is_new = True
         return meta
 
     def create_meta_test_file(self):
@@ -171,9 +173,14 @@ class EncryptionService:
             ValueError: If the passphrase is incorrect or metadata is corrupted.
         """
         test_path = self.meta_path.parent / ".meta-test"
-        if not test_path.exists():
+        if self._is_new:
+            # New setup: create a new test file
             self.create_meta_test_file()
             return
+
+        if not test_path.exists():
+            raise ValueError("Missing .meta-test file for verification.")
+
         try:
             encrypted = test_path.read_bytes()
             decrypted = self.fernet.decrypt(encrypted)
