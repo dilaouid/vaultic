@@ -57,6 +57,27 @@ class EncryptionService:
             backend=default_backend()
         )
         return base64.urlsafe_b64encode(kdf.derive(self.passphrase + purpose.encode()))
+    
+    def encrypt_bytes(self, data: bytes, output_path: str, hmac_path: str) -> None:
+        """
+        Encrypts raw bytes, writes to encrypted file, and writes HMAC.
+
+        Args:
+            data (bytes): The data to encrypt.
+            output_path (str): Path to write the encrypted content.
+            hmac_path (str): Path to write the HMAC.
+        """
+
+        compressed_content = zlib.compress(data, level=9)
+        encrypted = self.fernet.encrypt(compressed_content)
+
+        Path(output_path).write_bytes(MAGIC_HEADER + encrypted)
+
+        tag = hmac.new(self.hmac_key, encrypted, hashlib.sha256).digest()
+        Path(hmac_path).write_bytes(tag)
+
+        console.print(f"[cyan]🔏 HMAC saved:[/cyan] {hmac_path}")
+
 
     def encrypt_file(self, input_path: str, output_path: str, hmac_path: Optional[str] = None):
         """

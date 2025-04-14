@@ -13,9 +13,18 @@ from core.config import Config
 from core.utils import console
 from core.utils.dos import can_process_file, register_file_processed, throttle, register_error
 from core.utils.security import secure_delete, is_rotational
+
+from core.vault.index_writer import encrypt_index
+from core.vault.file_handler import handle_file
+
 from core.storage.factory import get_provider
 
 class VaulticWatcher(FileSystemEventHandler):
+    """
+        VaulticWatcher monitors the .vaultic/ directory for new or modified files.
+        When a file is added, it is encrypted, moved, and indexed in real-time.
+        Internal Vaultic files (e.g., /encrypted, /keys, or index.json) are ignored.
+    """
     def __init__(self, watch_dir: Path, encrypted_dir: Path, enc_service: EncryptionService):
         self.watch_dir = watch_dir.resolve()
         self.encrypted_dir = encrypted_dir.resolve()
@@ -35,6 +44,10 @@ class VaulticWatcher(FileSystemEventHandler):
         self._encrypt_and_upload(event.src_path)
 
     def _encrypt_and_upload(self, filepath):
+        """
+            Encrypts a given file and uploads it to the configured storage provider.
+            Handles deduplication, throttling, HMAC generation, secure deletion, and index update.
+        """
         if not can_process_file():
             console.print("[yellow]⏱ Too many files, throttling…[/yellow]")
             return
@@ -57,82 +70,8 @@ class VaulticWatcher(FileSystemEventHandler):
             # 🛑 Total exclusion of everything inside .vaultic/encrypted/*
             return
 
-        try:
-            rel_path = src_path.relative_to(self.watch_dir)
-            hashed_name = hashlib.sha256(str(rel_path).encode()).hexdigest() + ".enc"
-            content_dir = self.encrypted_dir / "content"
-            hmac_dir = self.encrypted_dir / "hmac"
-
-            content_dir.mkdir(parents=True, exist_ok=True)
-            hmac_dir.mkdir(parents=True, exist_ok=True)
-
-            encrypted_path = content_dir / hashed_name
-            hmac_path = hmac_dir / (hashed_name + ".hmac")
-        except ValueError:
-            console.print(f"[yellow]⚠ Ignored file outside watch dir: {src_path}[/yellow]")
-            return
-
-        # Wait a bit to ensure the file is fully written (or in this case, not deleted yet)
-        time.sleep(0.2)
-
-        # Abort if file was deleted between events
-        if not src_path.exists():
-            console.print(f"[yellow]⚠ File no longer exists: {src_path}[/yellow]")
-            return
-
-        if src_path.stat().st_size == 0:
-            console.print(f"[yellow]⚠ Skipping empty file:[/yellow] {rel_path}")
-            return
-
-        MAX_FILE_SIZE_MB = Config.VAULTIC_MAX_FILE_MB
-        if src_path.stat().st_size > MAX_FILE_SIZE_MB * 1024 * 1024:
-            console.print(f"[red]🚫 Skipped too large:[/red] {src_path.name}")
-            return
-
-        encrypted_path.parent.mkdir(parents=True, exist_ok=True)
-
-        console.print(f"[yellow]🔐 Encrypting:[/yellow] {rel_path}")
-        if encrypted_path.exists():
-            if Config.OVERWRITE_EXISTING == "no":
-                console.print(f"[yellow]↪ Already encrypted: {hashed_name}, skipping.[/yellow]")
-                return
-            elif Config.OVERWRITE_EXISTING == "ask":
-                confirm = typer.confirm(f"❓ Overwrite '{hashed_name}'?", default=False)
-                if not confirm:
-                    console.print(f"[blue]⏩ Skipped:[/blue] {rel_path}")
-                    return
-            # If "yes" or confirmed
-            console.print(f"[red]⚠ Overwriting existing:[/red] {hashed_name}")
-
-        file_size = src_path.stat().st_size
-        self.enc_service.encrypt_file(str(src_path), str(encrypted_path), str(hmac_path))
-
-        console.print(f"☁️  [yellow]Uploading to {Config.PROVIDER}:[/yellow] {rel_path}.enc")
-        self.provider.upload_file(encrypted_path, str(rel_path) + ".enc")
-
-        try:
-            if is_rotational(src_path):
-                secure_delete(src_path, passes=3)
-            else:
-                src_path.unlink()
-            console.print(f"[grey]🧹 Deleted original: {rel_path}[/grey]")
-        except Exception as e:
-            console.print(f"[red]⚠️ Failed to delete original file: {e}[/red]")
-            register_error()
-        console.print('-------------------------------')
-        index_data = {}
-
-        if index_path.exists():
-            index_data = json.loads(index_path.read_text())
-
-        # Save or update entry
-        index_data[str(rel_path)] = {
-            "hash": hashed_name,
-            "size": file_size,
-            "timestamp": time.time()
-        }
-
-        index_path.write_text(json.dumps(index_data, indent=2))
+        rel_path = src_path.relative_to(self.watch_dir)
+        handle_file(src_path, rel_path, self.enc_service, self.encrypted_dir, self.provider)
 
 
 def start_vaultic_watcher(passphrase: str, meta_path: Optional[Union[str, Path]] = None):
