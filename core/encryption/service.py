@@ -4,6 +4,7 @@ import json
 import os
 import base64
 import zlib
+from typing import Optional
 from pathlib import Path
 
 from cryptography.fernet import Fernet
@@ -57,7 +58,7 @@ class EncryptionService:
         )
         return base64.urlsafe_b64encode(kdf.derive(self.passphrase + purpose.encode()))
 
-    def encrypt_file(self, input_path: str, output_path: str) -> None:
+    def encrypt_file(self, input_path: str, output_path: str, hmac_path: Optional[str] = None):
         """
         Encrypts and compresses a file, then writes the result and its HMAC.
 
@@ -67,7 +68,7 @@ class EncryptionService:
         """
         input_path = Path(input_path)
         output_path = Path(output_path)
-        hmac_path = output_path.with_suffix(output_path.suffix + ".hmac")
+        hmac_path = Path(hmac_path) if hmac_path else output_path.with_suffix(output_path.suffix + ".hmac")
 
         original_content = input_path.read_bytes()
         compressed_content = zlib.compress(original_content, level=9)

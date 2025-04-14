@@ -1,9 +1,11 @@
+import json
 import time
 import hashlib
 
 from pathlib import Path
 from typing import Optional, Union
 
+import typer
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 from core.encryption.service import EncryptionService
@@ -36,6 +38,11 @@ class VaulticWatcher(FileSystemEventHandler):
         if not can_process_file():
             console.print("[yellow]⏱ Too many files, throttling…[/yellow]")
             return
+        
+        index_path = self.encrypted_dir.parent / "index.json"
+        if Path(filepath).resolve() == index_path.resolve():
+            console.print(f"[grey]🔁 Skipping Vaultic internal index.json[/grey]")
+            return
 
         register_file_processed()
         throttle()
@@ -47,16 +54,31 @@ class VaulticWatcher(FileSystemEventHandler):
             return
 
         if self.encrypted_dir in src_path.parents:
-            console.print(f"[yellow]↪ Ignored encrypted file: {src_path}[/yellow]")
+            # 🛑 Total exclusion of everything inside .vaultic/encrypted/*
             return
 
         try:
             rel_path = src_path.relative_to(self.watch_dir)
+            hashed_name = hashlib.sha256(str(rel_path).encode()).hexdigest() + ".enc"
+            content_dir = self.encrypted_dir / "content"
+            hmac_dir = self.encrypted_dir / "hmac"
+
+            content_dir.mkdir(parents=True, exist_ok=True)
+            hmac_dir.mkdir(parents=True, exist_ok=True)
+
+            encrypted_path = content_dir / hashed_name
+            hmac_path = hmac_dir / (hashed_name + ".hmac")
         except ValueError:
             console.print(f"[yellow]⚠ Ignored file outside watch dir: {src_path}[/yellow]")
             return
 
-        time.sleep(0.2)  # Wait for file to be fully written
+        # Wait a bit to ensure the file is fully written (or in this case, not deleted yet)
+        time.sleep(0.2)
+
+        # Abort if file was deleted between events
+        if not src_path.exists():
+            console.print(f"[yellow]⚠ File no longer exists: {src_path}[/yellow]")
+            return
 
         if src_path.stat().st_size == 0:
             console.print(f"[yellow]⚠ Skipping empty file:[/yellow] {rel_path}")
@@ -67,12 +89,23 @@ class VaulticWatcher(FileSystemEventHandler):
             console.print(f"[red]🚫 Skipped too large:[/red] {src_path.name}")
             return
 
-        encrypted_path = self.encrypted_dir / rel_path
-        encrypted_path = encrypted_path.with_suffix(encrypted_path.suffix + ".enc")
         encrypted_path.parent.mkdir(parents=True, exist_ok=True)
 
         console.print(f"[yellow]🔐 Encrypting:[/yellow] {rel_path}")
-        self.enc_service.encrypt_file(str(src_path), str(encrypted_path))
+        if encrypted_path.exists():
+            if Config.OVERWRITE_EXISTING == "no":
+                console.print(f"[yellow]↪ Already encrypted: {hashed_name}, skipping.[/yellow]")
+                return
+            elif Config.OVERWRITE_EXISTING == "ask":
+                confirm = typer.confirm(f"❓ Overwrite '{hashed_name}'?", default=False)
+                if not confirm:
+                    console.print(f"[blue]⏩ Skipped:[/blue] {rel_path}")
+                    return
+            # If "yes" or confirmed
+            console.print(f"[red]⚠ Overwriting existing:[/red] {hashed_name}")
+
+        file_size = src_path.stat().st_size
+        self.enc_service.encrypt_file(str(src_path), str(encrypted_path), str(hmac_path))
 
         console.print(f"☁️  [yellow]Uploading to {Config.PROVIDER}:[/yellow] {rel_path}.enc")
         self.provider.upload_file(encrypted_path, str(rel_path) + ".enc")
@@ -87,6 +120,19 @@ class VaulticWatcher(FileSystemEventHandler):
             console.print(f"[red]⚠️ Failed to delete original file: {e}[/red]")
             register_error()
         console.print('-------------------------------')
+        index_data = {}
+
+        if index_path.exists():
+            index_data = json.loads(index_path.read_text())
+
+        # Save or update entry
+        index_data[str(rel_path)] = {
+            "hash": hashed_name,
+            "size": file_size,
+            "timestamp": time.time()
+        }
+
+        index_path.write_text(json.dumps(index_data, indent=2))
 
 
 def start_vaultic_watcher(passphrase: str, meta_path: Optional[Union[str, Path]] = None):
@@ -99,6 +145,8 @@ def start_vaultic_watcher(passphrase: str, meta_path: Optional[Union[str, Path]]
     salt = enc_service.salt
     subfolder = hashlib.sha256(salt.encode()).hexdigest()[:12]
     encrypted_dir = Path(".vaultic/encrypted") / subfolder
+    (vault_dir / ".vaultic.lock").write_text("🔒 Managed by Vaultic. Do not modify manually.\nHere, you can paste / write multiple files, and it will go in the appropriate encrypted folder.\nDo not paste anything inside /keys or /encrypted.\n\n--------\n\nFiles placed here will be auto-deleted and encrypted", encoding="UTF-8")
+    (encrypted_dir / ".vaultic.lock").write_text("🔒 This encrypted area is managed by Vaultic.", encoding="UTF-8")
 
     console.print(f"👀  [blue]Watching: {vault_dir.resolve()} for changes…[/blue]")
     event_handler = VaulticWatcher(vault_dir, encrypted_dir, enc_service)
