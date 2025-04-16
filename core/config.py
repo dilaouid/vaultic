@@ -13,6 +13,7 @@ class Config:
     GUI_TEMP_LIFETIME_SECONDS = os.getenv("GUI_TEMP_LIFETIME_SECONDS")
     VAULTIC_MAX_FILE_MB= int(os.getenv("VAULTIC_MAX_FILE_MB", "500"))
     OVERWRITE_EXISTING = os.getenv("VAULTIC_OVERWRITE", "ask")
+    KEY_PATH = os.getenv("KEY_PATH", ".vaultic/keys/vaultic_key.pem")
 
     # Provider-specific configs
     GOOGLE_CLIENT_ID = os.getenv("GOOGLE_DRIVE_CLIENT_ID")
