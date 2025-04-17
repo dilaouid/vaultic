@@ -172,4 +172,8 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
-.vaultic
+# Ignore all content inside .vaultic directory
+.vaultic/*
+
+# Except the lock file
+!.vaultic/.vaultic.lock
