@@ -87,7 +87,6 @@ def setup_pepper_in_env():
     else:
         print("✅ VAULTIC_PEPPER already exists in environment")
 
-
 def print_key_warning(path: Path) -> None:
     """
     Prints a critical warning about the RSA private key importance.

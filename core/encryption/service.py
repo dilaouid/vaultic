@@ -11,6 +11,8 @@ from typing import Optional
 from pathlib import Path
 from rich import print
 
+from core.config import Config
+
 from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.backends import default_backend
@@ -18,8 +20,7 @@ from cryptography.hazmat.primitives import hashes
 
 # Get the pepper from environment variable or generate a secure default
 # Each installation will have its own unique pepper for additional security
-DEFAULT_PEPPER = os.urandom(32).hex()
-PEPPER = os.getenv('VAULTIC_PEPPER', DEFAULT_PEPPER).encode()
+PEPPER = Config.VAULTIC_PEPPER.encode()
 
 # Magic header for identifying Vaultic encrypted files
 MAGIC_HEADER = b"VAULTICv1\n"

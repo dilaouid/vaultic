@@ -1,6 +1,5 @@
 import typer
 from rich import print
-from pathlib import Path
 from typing import Optional
 from getpass import getpass
 

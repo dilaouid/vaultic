@@ -25,3 +25,8 @@ class Config:
     B2_ACCOUNT_ID = os.getenv("B2_ACCOUNT_ID")
     B2_APPLICATION_KEY = os.getenv("B2_APPLICATION_KEY")
     B2_BUCKET_NAME = os.getenv("B2_BUCKET_NAME")
+
+    # 🔥 Mandatory pepper for encryption
+    VAULTIC_PEPPER = os.getenv("VAULTIC_PEPPER")
+    if not VAULTIC_PEPPER:
+        raise RuntimeError("❌ VAULTIC_PEPPER is missing in environment (.env). Cannot continue.")
