@@ -24,7 +24,7 @@ class VaultFileHandler(FileSystemEventHandler):
     def __init__(self, vault_dir: Path, encrypted_dir: Path, enc_service: EncryptionService):
         """
         Initialize the vault file handler.
-        
+
         Args:
             vault_dir: Path to the vault directory to watch
             encrypted_dir: Path to the directory where encrypted files are stored
@@ -35,21 +35,21 @@ class VaultFileHandler(FileSystemEventHandler):
         self.encrypted_dir.mkdir(parents=True, exist_ok=True)
         self.enc_service = enc_service
         self.provider = get_provider(Config.PROVIDER)
-        
+
         # Paths to exclude from monitoring
         self.excluded_paths: Set[str] = {
             str(encrypted_dir),
             str(vault_dir / "keys"),
             str(vault_dir / "encrypted")
         }
-        
+
         # Common temporary files to ignore
         self.excluded_files: Set[str] = {
             ".DS_Store", "thumbs.db", "desktop.ini", 
             ".gitkeep", ".vaultic.lock", ".meta-test", 
             "README.md"
         }
-        
+
         # Set of files currently being processed
         self.processing: Set[str] = set()
 
@@ -60,36 +60,36 @@ class VaultFileHandler(FileSystemEventHandler):
         # Only process file creation and modification events
         if not isinstance(event, (FileCreatedEvent, FileModifiedEvent)):
             return
-            
+
         # Ignore directory events
         if event.is_directory:
             return
-            
+
         path = Path(event.src_path).resolve()
         path_str = str(path)
-        
+
         # Ignore files in excluded directories
         for excluded in self.excluded_paths:
             if excluded in path_str:
                 return
-                
+
         # Ignore common temporary/system files
         if path.name in self.excluded_files:
             return
-            
+
         # Ignore files already being processed
         if path_str in self.processing:
             return
-        
+
         # Dispatch the event to the specific handler
         super().dispatch(event)
-        
+
     def on_created(self, event):
         self._process_file(event.src_path)
-        
+
     def on_modified(self, event):
         self._process_file(event.src_path)
-        
+
     def _process_file(self, filepath: str):
         """
         Process a newly created or modified file.
@@ -97,7 +97,7 @@ class VaultFileHandler(FileSystemEventHandler):
         # Resolve the file path
         path = Path(filepath).resolve()
         path_str = str(path)
-        
+
         # Additional checks for reserved files
         forbidden_names = {".meta-test", ".vaultic.lock"}
         if path.name in forbidden_names and path.parent == self.vault_dir:
@@ -107,17 +107,17 @@ class VaultFileHandler(FileSystemEventHandler):
         # Additional checks
         if path_str in self.processing:
             return
-            
+
         # Double-check excluded paths
         if any(excluded in path_str for excluded in self.excluded_paths):
             return
-        
+
         try:
             # Check if file still exists
             if not path.exists():
                 print(f"[yellow]⚠ File no longer exists: {path}[/yellow]")
                 return
-                
+
             # Check file size (ignore very small files)
             file_size = path.stat().st_size
             if file_size <= 1500:
@@ -126,7 +126,7 @@ class VaultFileHandler(FileSystemEventHandler):
 
             # Mark file as being processed
             self.processing.add(path_str)
-                
+
             # Check rate limits
             if not can_process_file():
                 print("[yellow]⏱ Rate limit reached, throttling…[/yellow]")
@@ -135,14 +135,14 @@ class VaultFileHandler(FileSystemEventHandler):
             # Register file processing and apply throttle
             register_file_processed()
             throttle()
-            
+
             # Calculate relative path
             try:
                 rel_path = path.relative_to(self.vault_dir)
             except ValueError:
                 print(f"[red]❌ File is outside vault directory: {path}[/red]")
                 return
-                
+
             # Process the file
             encrypt_and_store_file(
                 path, 
@@ -151,13 +151,12 @@ class VaultFileHandler(FileSystemEventHandler):
                 self.encrypted_dir, 
                 self.provider
             )
-            
+
         except Exception as e:
             print(f"[red]❌ Error processing file {path}: {str(e)}[/red]")
         finally:
             # Always remove the file from the processing set
             self.processing.discard(path_str)
-
 
 def start_vault_watcher(vault_id, passphrase, meta_path=None):
     """
@@ -181,7 +180,7 @@ def start_vault_watcher(vault_id, passphrase, meta_path=None):
         # Extract vault_id from meta_path parent directory if not provided
         if vault_id is None:
             vault_id = meta_path.parent.parent.name
-    
+
     # Base paths
     vault_dir = Path(".vaultic") / vault_id
     encrypted_dir = vault_dir / "encrypted"

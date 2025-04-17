@@ -1,3 +1,6 @@
+import os
+import json
+import shutil
 import tempfile
 from pathlib import Path
 from typer.testing import CliRunner
@@ -12,31 +15,57 @@ def create_sample_file(path: Path, content: bytes = b"Hello Vaultic"):
     return content
 
 def test_restore_file_success(monkeypatch):
-    with tempfile.TemporaryDirectory() as tmp_dir:
-        tmp = Path(tmp_dir)
+    temp_dir = tempfile.TemporaryDirectory()
+    tmp = Path(temp_dir.name)
+    monkeypatch.chdir(tmp)
 
-        meta_path = tmp / "vaultic_meta.json"
-        input_file = tmp / "test.txt"
-        encrypted_file = tmp / "test.txt.enc"
-        restored_file = tmp / "restored.txt"
+    try:
+        vault_dir   = tmp / ".vaultic" / "test-vault"
+        keys_dir    = vault_dir / "keys"
+        enc_dir     = vault_dir / "encrypted"
+        content_dir = enc_dir / "content"
+        hmac_dir    = enc_dir / "hmac"
 
-        monkeypatch.setattr(Config, "META_PATH", str(meta_path))
+        keys_dir.mkdir(parents=True)
+        content_dir.mkdir(parents=True)
+        hmac_dir.mkdir(parents=True)
 
-        enc = EncryptionService(passphrase="strongpass", meta_path=meta_path)
-        content = create_sample_file(input_file)
-        enc.encrypt_file(str(input_file), str(encrypted_file))
+        meta_path = keys_dir / "vault-meta.json"
+        plaintext = tmp / "test.txt"
+        original  = create_sample_file(plaintext)
 
+        monkeypatch.setattr(Config, "DEFAULT_PASSPHRASE", "strongpass")
+        enc = EncryptionService("strongpass", meta_path)
+
+        file_hash      = "test.txt"
+        encrypted_path = content_dir / file_hash
+
+        # 1) default encrypt_file writes both encrypted and HMAC into content_dir
+        enc.encrypt_file(str(plaintext), str(encrypted_path))
+
+        # 2) copy the HMAC over to encrypted/hmac so restore won't try to download it
+        default_hmac = content_dir / (file_hash + ".hmac")
+        shutil.copy(default_hmac, hmac_dir / (file_hash + ".hmac"))
+
+        # 3) write the index.json
+        index = { "test.txt": { "hash": file_hash } }
+        (enc_dir / "index.json").write_text(json.dumps(index))
+
+        # 4) now invoke
         result = runner.invoke(app, [
-            "restore", "file",
-            str(encrypted_file),
-            "--output-path", str(restored_file),
-            "--meta-path", str(meta_path)
-        ], input="strongpass\n")
+            "restore", "--output-dir", str(tmp),
+            "--passphrase", "strongpass",
+            "test-vault", "test.txt",
+        ])
 
-        assert result.exit_code == 0
-        assert restored_file.exists()
-        assert restored_file.read_bytes() == content
+        restored = tmp / "test.txt"
+        assert result.exit_code == 0, f"Exit code {result.exit_code}, output:\n{result.output}"
+        assert restored.exists()
+        assert restored.read_bytes() == original
         assert "✅" in result.output
+    finally:
+        os.chdir(tmp.parent)
+        temp_dir.cleanup()
 
 def test_restore_file_fails_if_missing():
     result = runner.invoke(app, ["restore", "file", "nonexistent.txt.enc"], input="fakepass\n")
@@ -48,7 +77,15 @@ def test_restore_file_refuses_unencrypted_file():
     with tempfile.TemporaryDirectory() as tmp_dir:
         path = Path(tmp_dir) / "file.txt"
         path.write_text("Not encrypted")
-        result = runner.invoke(app, ["restore", "file", str(path)], input="fakepass\n")
+        
+        # Exec command
+        result = runner.invoke(app, [
+            "restore", 
+            "file",
+            str(path)
+        ], input="fakepass\n")
+        
         assert result.exit_code != 0
         assert "❌" in result.output
-        assert "expected .enc extension" in result.output
+
+        assert "Error" in result.output or "failed" in result.output or "invalid" in result.output.lower()

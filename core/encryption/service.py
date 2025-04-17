@@ -16,8 +16,6 @@ from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import hashes
 
-from core.config import Config
-
 # Get the pepper from environment variable or generate a secure default
 # Each installation will have its own unique pepper for additional security
 DEFAULT_PEPPER = os.urandom(32).hex()
@@ -287,15 +285,15 @@ class EncryptionService:
                 if decrypted != self.test_content:
                     print(f"[red]Content mismatch. Expected: {self.test_content}, Got: {decrypted}[/red]")
                     raise ValueError("Corrupted .meta-test file - content doesn't match")
-                    
+
                 print(f"[green]✅ Passphrase verification successful![/green]")
             except Exception as e:
                 print(f"Error during decryption: {str(e)}")
                 raise
-                
+
         except Exception as e:
             print(f"Exception during verification: {type(e).__name__}: {str(e)}")
             raise ValueError(f"Invalid passphrase or corrupted metadata: {str(e)}")
-        
+
         # Now that verification is complete, we can clear the passphrase
         self._secure_clear_passphrase()

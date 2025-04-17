@@ -21,13 +21,13 @@ def temp_keys_dir():
         tmp = Path(tmp_dir)
         vaultic_dir = tmp / ".vaultic"
         vaultic_dir.mkdir(parents=True, exist_ok=True)
-        
+
         # Change current working dir to tmp for relative paths
         original_dir = os.getcwd()
         os.chdir(tmp)
-        
+
         yield tmp, vaultic_dir
-        
+
         # Change back to original dir
         os.chdir(original_dir)
 
@@ -45,7 +45,7 @@ def find_existing_vaults(vaultic_dir: Path):
     for vault_dir in vaultic_dir.iterdir():
         if not vault_dir.is_dir() or vault_dir.name.startswith('.'):
             continue
-        
+
         # Check for metadata file
         meta_path = vault_dir / "keys" / "vault-meta.json"
         if meta_path.exists():
@@ -54,13 +54,13 @@ def find_existing_vaults(vaultic_dir: Path):
                 vaults.append((vault_dir.name, meta))
             except:
                 pass
-    
+
     return vaults
 
 def test_find_existing_vaults_empty_dir(temp_keys_dir):
     """Test finding vaults in an empty directory."""
     _, vaultic_dir = temp_keys_dir
-    
+
     # Use list_vaults from manager instead of the old find_existing_vaults
     vaults = list_vaults()
     assert len(vaults) == 0
@@ -68,7 +68,7 @@ def test_find_existing_vaults_empty_dir(temp_keys_dir):
 def test_find_existing_vaults_with_vaults(temp_keys_dir):
     """Test finding vaults when vaults exist."""
     _, vaultic_dir = temp_keys_dir
-    
+
     # Create fake vault dirs with metadata
     vault1_dir = vaultic_dir / "vault1"
     vault1_dir.mkdir()
@@ -82,7 +82,7 @@ def test_find_existing_vaults_with_vaults(temp_keys_dir):
         "created_at": 1000000
     }
     (keys_dir1 / "vault-meta.json").write_text(json.dumps(meta1))
-    
+
     vault2_dir = vaultic_dir / "vault2"
     vault2_dir.mkdir()
     keys_dir2 = vault2_dir / "keys"
@@ -96,18 +96,18 @@ def test_find_existing_vaults_with_vaults(temp_keys_dir):
         "created_at": 1000001
     }
     (keys_dir2 / "vault-meta.json").write_text(json.dumps(meta2))
-    
+
     # Use our helper function to check the structure
     vaults = find_existing_vaults(vaultic_dir)
-    
+
     assert len(vaults) == 2
     assert "vault1" in [v[0] for v in vaults]
     assert "vault2" in [v[0] for v in vaults]
-    
+
     # Check metadata is loaded correctly
     vault1_meta = next(m for v, m in vaults if v == "vault1")
     vault2_meta = next(m for v, m in vaults if v == "vault2")
-    
+
     assert vault1_meta["linked"] is False
     assert vault2_meta["linked"] is True
     assert vault2_meta["main_vault"] == "vault1"
@@ -166,17 +166,17 @@ def test_create_independent_vault(mock_uuid, temp_keys_dir, mock_getpass):
 def test_create_linked_vault_no_existing_vaults(mock_uuid, temp_keys_dir, mock_getpass):
     """Test creating a linked vault when no vaults exist."""
     _, vaultic_dir = temp_keys_dir
-    
+
     # We need to mock two different UUID calls
     main_uuid = MagicMock()
     main_uuid.hex = "main123456789" * 2
-    
+
     linked_uuid = MagicMock()
     linked_uuid.hex = "linked987654321" * 2
-    
+
     # Setup the sequence of return values
     mock_uuid.side_effect = [main_uuid, linked_uuid]
-    
+
     # Override the default passphrase for the test
     with patch("core.config.Config.DEFAULT_PASSPHRASE", "test_password"):
         # Mock EncryptionService
