@@ -1,7 +1,7 @@
 import tempfile
 from pathlib import Path
 from typer.testing import CliRunner
-from cli.main import app
+from cli.__main__ import app
 from core.encryption.service import EncryptionService
 from core.config import Config
 

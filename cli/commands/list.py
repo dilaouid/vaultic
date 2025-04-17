@@ -1,39 +1,123 @@
+"""
+List Command - View vaults and their contents.
+"""
 import typer
 import json
-from pathlib import Path
+import time
 from rich import print
-from core.indexing.indexer import load_index
+from rich.table import Table
+
+from core.vault.manager import list_vaults, get_vault_path
 
 app = typer.Typer()
 
 @app.callback(invoke_without_command=True)
+def list_command():
+    """
+    List all available vaults.
+    """
+    vaults = list_vaults()
+    
+    if not vaults:
+        print("[yellow]No vaults found.[/yellow]")
+        print("[blue]Create one with:[/blue] vaultic create --linked")
+        return
+    
+    table = Table(title="Vaultic Encrypted Vaults")
+    table.add_column("ID", style="cyan")
+    table.add_column("Files", style="green")
+    table.add_column("Created", style="yellow")
+    table.add_column("Mode", style="blue")
+    table.add_column("Path", style="dim")
+    
+    for vault in vaults:
+        created = time.strftime("%Y-%m-%d %H:%M", time.localtime(vault["created_at"]))
+        mode = "Linked" if vault["linked"] else "Independent"
+        
+        table.add_row(
+            vault["id"],
+            str(vault["file_count"]),
+            created,
+            mode,
+            vault["path"]
+        )
+    
+    print(table)
+    print("\n[blue]Use 'vaultic list files <vault-id>' to view files in a specific vault.[/blue]")
+
+@app.command("files")
 def list_files(
-    index_path: str = typer.Option(None, help="Path to the index file"),
-    json_output: bool = typer.Option(False, "--json", help="Output the raw index as JSON")
+    vault_id: str = typer.Argument(..., help="ID of the vault to list files from"),
+    show_hashes: bool = typer.Option(False, "--hashes", "-h", help="Show file hash identifiers")
 ):
     """
-    List all files in the backup index.
+    List files in a specific vault.
     """
-    try:
-        index_path = Path(index_path)
-        if not index_path.exists():
-            print(f"[red]❌ Index file not found:[/red] {index_path}")
-            raise typer.Exit(1)
-
-        index = load_index(index_path)
-        
-        if json_output:
-            print(json.dumps(index, indent=2))
-            return
-        
-        print(f"[blue]📁 Backup root:[/blue] {index.get('root', 'N/A')}")
-        print(f"[blue]🔢 Total files:[/blue] {len(index.get('files', []))}")
-        
-        print("\n[yellow]Files in backup:[/yellow]")
-        for i, file in enumerate(sorted(index.get('files', []), key=lambda x: x.get('relative_path', ''))):
-            size_kb = file.get('size', 0) / 1024
-            print(f"{i+1}. [green]{file.get('relative_path')}[/green] ({size_kb:.1f} KB)")
+    vault_path = get_vault_path(vault_id)
     
-    except Exception as e:
-        print(f"[red]❌ Error reading index:[/red] {str(e)}")
-        raise typer.Exit(1)
+    if not vault_path.exists():
+        print(f"[red]Vault not found:[/red] {vault_id}")
+        return
+    
+    index_path = vault_path / "encrypted" / "index.json"
+    
+    if not index_path.exists():
+        print(f"[yellow]No files in vault:[/yellow] {vault_id}")
+        return
+    
+    try:
+        with open(index_path, 'r') as f:
+            index_data = json.load(f)
+    except json.JSONDecodeError:
+        print(f"[red]Invalid index file for vault:[/red] {vault_id}")
+        return
+    
+    if not index_data:
+        print(f"[yellow]No files in vault:[/yellow] {vault_id}")
+        return
+    
+    table = Table(title=f"Files in Vault: {vault_id}")
+    table.add_column("Filename", style="cyan")
+    table.add_column("Size", style="green")
+    table.add_column("Modified", style="yellow")
+    
+    if show_hashes:
+        table.add_column("Hash", style="dim")
+    
+    # Sort files by timestamp (newest first)
+    sorted_files = sorted(
+        [(path, info) for path, info in index_data.items()],
+        key=lambda x: x[1].get("timestamp", 0),
+        reverse=True
+    )
+    
+    for path, info in sorted_files:
+        # Skip special files
+        if path.startswith(".") or path == ".vaultic.lock":
+            continue
+            
+        size = format_size(info.get("size", 0))
+        timestamp = time.strftime(
+            "%Y-%m-%d %H:%M", 
+            time.localtime(info.get("timestamp", 0))
+        )
+        
+        if show_hashes:
+            table.add_row(path, size, timestamp, info.get("hash", ""))
+        else:
+            table.add_row(path, size, timestamp)
+    
+    print(table)
+    print(f"\n[green]Total Files:[/green] {len(sorted_files)}")
+    print(f"[blue]To restore a file:[/blue] vaultic restore {vault_id} <filename>")
+
+def format_size(size_bytes):
+    """Format file size in human-readable format."""
+    if size_bytes < 1024:
+        return f"{size_bytes} B"
+    elif size_bytes < 1024 * 1024:
+        return f"{size_bytes / 1024:.1f} KB"
+    elif size_bytes < 1024 * 1024 * 1024:
+        return f"{size_bytes / (1024 * 1024):.1f} MB"
+    else:
+        return f"{size_bytes / (1024 * 1024 * 1024):.1f} GB"

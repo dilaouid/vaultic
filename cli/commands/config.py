@@ -1,3 +1,4 @@
+# cli\commands\config.py
 import typer
 from rich import print
 from core.config import Config
@@ -40,7 +41,7 @@ def set_config(
     Set a configuration value in the .env file.
     """
     env_file = Path(".env")
-    
+
     if not env_file.exists():
         # Create from .env.example if it exists
         example_file = Path(".env.example")
@@ -52,10 +53,10 @@ def set_config(
         else:
             env_file.touch()
             print("[green]Created empty .env file[/green]")
-    
+
     # Update the .env file
     dotenv_file = dotenv.find_dotenv()
     dotenv.set_key(dotenv_file, key, value)
-    
+
     print(f"[green]✅ Successfully set {key}=[/green] {value}")
     print("[yellow]Note: You need to restart the application for changes to take effect.[/yellow]")

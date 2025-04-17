@@ -1,9 +1,8 @@
 from pathlib import Path
 from typing import Tuple
+from rich import print
 import questionary
 import uuid
-
-from core.utils import console
 
 def list_existing_vaults(keys_dir: Path) -> list[Path]:
     """
@@ -45,7 +44,7 @@ def select_or_create_vault(keys_dir: Path) -> Tuple[str, Path]:
     vaults = list_existing_vaults(keys_dir)
 
     if not vaults:
-        console.print("[yellow]⚠ No vaults found. Creating a new vault…[/yellow]")
+        print("[yellow]⚠ No vaults found. Creating a new vault…[/yellow]")
         meta_path = create_new_vault(keys_dir)
         subfolder = meta_path.parent.name
         return subfolder, meta_path

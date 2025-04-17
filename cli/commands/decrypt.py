@@ -1,7 +1,7 @@
 import typer
 import getpass
+from rich import print
 from pathlib import Path
-from core.utils import console
 from core.config import Config
 from core.encryption.service import EncryptionService
 
@@ -29,18 +29,18 @@ def decrypt_file(
 
         # Ensure input file exists
         if not input_path.exists():
-            console.print(f"[red]❌ File not found:[/red] {input_path}")
+            print(f"[red]❌ File not found:[/red] {input_path}")
             raise typer.Exit(1)
 
         # Create parent directory if needed
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
         # Decrypt file
-        console.print(f"[blue]🔓 Decrypting:[/blue] {input_path}")
+        print(f"[blue]🔓 Decrypting:[/blue] {input_path}")
         enc.decrypt_file(str(input_path), str(output_path))
         
-        console.print(f"✅ File restored successfully to {output_path}")
+        print(f"✅ File restored successfully to {output_path}")
         
     except Exception as e:
-        console.print(f"[red]❌ Decryption failed:[/red] {str(e)}")
+        print(f"[red]❌ Decryption failed:[/red] {str(e)}")
         raise typer.Exit(1)

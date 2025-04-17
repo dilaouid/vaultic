@@ -1,43 +1,134 @@
+"""
+Restore Command - Retrieve and decrypt files from vaults.
+"""
 import typer
+import json
 from pathlib import Path
-from core.utils import console
+from getpass import getpass
+from rich import print
+from typing import Optional
+
 from core.config import Config
 from core.encryption.service import EncryptionService
+from core.storage.factory import get_provider
+from core.vault.manager import get_vault_path
 
 app = typer.Typer()
 
-@app.command("file")
-def restore_file(
-    encrypted_file: str = typer.Argument(..., help="Path to the encrypted .enc file"),
-    output_path: str = typer.Option(None, help="Destination path (default: remove .enc extension)"),
-    passphrase: str = typer.Option(..., prompt=True, hide_input=True, help="Encryption passphrase"),
-    meta_path: str = typer.Option(None, help="Path to vaultic_meta.json (contains salt)")
+@app.callback(invoke_without_command=True)
+def restore(
+    vault_id: str = typer.Argument(..., help="ID of the vault containing the file"),
+    filepath: str = typer.Argument(..., help="Path of the file to restore (as shown in 'list files')"),
+    output_dir: str = typer.Option("./restored", help="Directory where to save the restored file"),
+    output_name: Optional[str] = typer.Option(None, help="Alternative filename for the restored file"),
+    provider: str = typer.Option(None, help="Override storage provider defined in .env"),
+    passphrase: Optional[str] = typer.Option(None, help="Vault passphrase (will prompt if not provided)")
 ):
     """
-    Decrypts a file encrypted with Vaultic using passphrase and meta file, restoring it to original form.
+    Restore a single file from a vault.
     """
-    input_path = Path(encrypted_file).resolve()
-
-    if not input_path.exists():
-        console.print(f"[red]❌ File not found: {input_path}[/red]")
-        raise typer.Exit(1)
-
-    if not input_path.name.endswith(".enc"):
-        console.print(f"[red]❌ Invalid file: expected .enc extension[/red]")
-        raise typer.Exit(1)
-
-    output_path = Path(output_path).resolve() if output_path else input_path.with_suffix('')
-
-    console.print(f"[blue]🔓 Restoring:[/blue] {input_path.name} → {output_path.name}")
-
-    enc = EncryptionService(
-        passphrase=passphrase, 
-        meta_path=Path(meta_path).expanduser() if meta_path else Path(Config.META_PATH)
-    )
-
     try:
-        enc.decrypt_file(str(input_path), str(output_path))
-        console.print(f"[green]✅ Restored successfully:[/green] {output_path}")
+        # Prepare paths
+        vault_path = get_vault_path(vault_id)
+        if not vault_path.exists():
+            print(f"[red]❌ Vault not found:[/red] {vault_id}")
+            raise typer.Exit(code=1)
+            
+        meta_path = vault_path / "keys" / "vault-meta.json"
+        if not meta_path.exists():
+            print(f"[red]❌ Vault metadata not found for:[/red] {vault_id}")
+            raise typer.Exit(code=1)
+            
+        # Check if file exists in index
+        index_path = vault_path / "encrypted" / "index.json"
+        if not index_path.exists():
+            print(f"[red]❌ No index file found for vault:[/red] {vault_id}")
+            raise typer.Exit(code=1)
+            
+        with open(index_path, 'r') as f:
+            index = json.load(f)
+            
+        if filepath not in index:
+            print(f"[red]❌ File not found in vault:[/red] {filepath}")
+            available = "\n  • ".join(list(index.keys())[:5])
+            print(f"[yellow]Available files include:[/yellow]\n  • {available}")
+            print(f"[blue]Use 'vaultic list files {vault_id}' to see all files.[/blue]")
+            raise typer.Exit(code=1)
+            
+        file_info = index[filepath]
+        file_hash = file_info["hash"]
+        
+        # Get encryption service
+        if not passphrase:
+            passphrase = getpass("🔑 Enter vault passphrase: ")
+            
+        enc_service = EncryptionService(passphrase, meta_path)
+        
+        try:
+            enc_service.verify_passphrase()
+        except ValueError as e:
+            print(f"[red]❌ {str(e)}[/red]")
+            raise typer.Exit(code=1)
+            
+        # Set up paths
+        provider_name = provider or Config.PROVIDER
+        provider = get_provider(provider_name)
+        
+        encrypted_path = vault_path / "encrypted" / "content" / file_hash
+        hmac_path = vault_path / "encrypted" / "hmac" / (file_hash + ".hmac")
+        
+        # If files aren't local, download them
+        temp_dir = Path(".vaultic/temp")
+        temp_dir.mkdir(parents=True, exist_ok=True)
+        temp_encrypted = temp_dir / file_hash
+        temp_hmac = temp_dir / (file_hash + ".hmac")
+        
+        if not encrypted_path.exists():
+            print(f"[blue]☁️ Downloading from {provider_name}:[/blue] {filepath}")
+            try:
+                provider.download_file(filepath + ".enc", temp_encrypted)
+                encrypted_path = temp_encrypted
+            except Exception as e:
+                print(f"[red]❌ Failed to download file:[/red] {str(e)}")
+                raise typer.Exit(code=1)
+                
+        if not hmac_path.exists():
+            try:
+                provider.download_file(filepath + ".enc.hmac", temp_hmac)
+                hmac_path = temp_hmac
+            except Exception as e:
+                print(f"[red]❌ Failed to download HMAC:[/red] {str(e)}")
+                raise typer.Exit(code=1)
+        
+        # Prepare output path
+        output_path = Path(output_dir)
+        output_path.mkdir(parents=True, exist_ok=True)
+        
+        if output_name:
+            final_path = output_path / output_name
+        else:
+            # Use the original filename
+            filename = Path(filepath).name
+            final_path = output_path / filename
+            
+        # Decrypt the file
+        print(f"[yellow]🔓 Decrypting:[/yellow] {filepath}")
+        try:
+            enc_service.decrypt_file(str(encrypted_path), str(final_path))
+            print(f"[green]✅ File restored to:[/green] {final_path}")
+            
+            # Clean up temp files
+            if temp_encrypted.exists():
+                temp_encrypted.unlink()
+            if temp_hmac.exists():
+                temp_hmac.unlink()
+                
+            return final_path
+            
+        except Exception as e:
+            print(f"[red]❌ Decryption failed:[/red] {str(e)}")
+            raise typer.Exit(code=1)
+            
     except Exception as e:
-        console.print(f"[red]❌ Decryption failed: {e}[/red]")
-        raise typer.Exit(1)
+        print(f"[red]❌ Error restoring file:[/red] {str(e)}")
+        raise typer.Exit(code=1)
