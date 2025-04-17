@@ -14,6 +14,7 @@ class Config:
     VAULTIC_MAX_FILE_MB= int(os.getenv("VAULTIC_MAX_FILE_MB", "500"))
     OVERWRITE_EXISTING = os.getenv("VAULTIC_OVERWRITE", "ask")
     KEY_PATH = os.getenv("KEY_PATH", ".vaultic/keys/vaultic_key.pem")
+    DEFAULT_PASSPHRASE = os.getenv("VAULTIC_DEFAULT_PASSPHRASE", "changeme")
 
     # Provider-specific configs
     GOOGLE_CLIENT_ID = os.getenv("GOOGLE_DRIVE_CLIENT_ID")
