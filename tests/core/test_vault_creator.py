@@ -5,14 +5,16 @@ from pathlib import Path
 import pytest
 from unittest.mock import patch, MagicMock
 
-from core.vault.manager import create_vault, list_vaults, get_vaults_directory
+from core.vault.manager import create_vault, list_vaults
+
 
 @pytest.fixture
 def mock_getpass():
     """Mock getpass to return a predefined password."""
-    with patch('getpass.getpass') as mock:
+    with patch("getpass.getpass") as mock:
         mock.return_value = "test_password"
         yield mock
+
 
 @pytest.fixture
 def temp_keys_dir():
@@ -31,19 +33,20 @@ def temp_keys_dir():
         # Change back to original dir
         os.chdir(original_dir)
 
+
 def find_existing_vaults(vaultic_dir: Path):
     """
     Helper function to find vaults in a directory for test compatibility.
     """
     vaults = []
-    
+
     # Check if vaultic_dir exists
     if not vaultic_dir.exists():
         return vaults
-    
+
     # Look through vault directories
     for vault_dir in vaultic_dir.iterdir():
-        if not vault_dir.is_dir() or vault_dir.name.startswith('.'):
+        if not vault_dir.is_dir() or vault_dir.name.startswith("."):
             continue
 
         # Check for metadata file
@@ -52,10 +55,11 @@ def find_existing_vaults(vaultic_dir: Path):
             try:
                 meta = json.loads(meta_path.read_text())
                 vaults.append((vault_dir.name, meta))
-            except:
+            except ValueError:
                 pass
 
     return vaults
+
 
 def test_find_existing_vaults_empty_dir(temp_keys_dir):
     """Test finding vaults in an empty directory."""
@@ -64,6 +68,7 @@ def test_find_existing_vaults_empty_dir(temp_keys_dir):
     # Use list_vaults from manager instead of the old find_existing_vaults
     vaults = list_vaults()
     assert len(vaults) == 0
+
 
 def test_find_existing_vaults_with_vaults(temp_keys_dir):
     """Test finding vaults when vaults exist."""
@@ -79,7 +84,7 @@ def test_find_existing_vaults_with_vaults(temp_keys_dir):
         "linked": False,
         "salt": "test_salt_1",
         "version": 1,
-        "created_at": 1000000
+        "created_at": 1000000,
     }
     (keys_dir1 / "vault-meta.json").write_text(json.dumps(meta1))
 
@@ -93,7 +98,7 @@ def test_find_existing_vaults_with_vaults(temp_keys_dir):
         "main_vault": "vault1",
         "salt": "test_salt_2",
         "version": 1,
-        "created_at": 1000001
+        "created_at": 1000001,
     }
     (keys_dir2 / "vault-meta.json").write_text(json.dumps(meta2))
 
@@ -115,6 +120,7 @@ def test_find_existing_vaults_with_vaults(temp_keys_dir):
     # Also test the new list_vaults function
     vaults_list = list_vaults()
     assert len(vaults_list) == 2
+
 
 @patch("uuid.uuid4")
 def test_create_independent_vault(mock_uuid, temp_keys_dir, mock_getpass):
@@ -142,7 +148,7 @@ def test_create_independent_vault(mock_uuid, temp_keys_dir, mock_getpass):
                     "salt": "test_salt",
                     "pepper_hash": "test_hash",
                     "version": 1,
-                    "linked": False
+                    "linked": False,
                 }
                 meta_path.write_text(json.dumps(meta_data))
                 return instance
@@ -153,7 +159,9 @@ def test_create_independent_vault(mock_uuid, temp_keys_dir, mock_getpass):
             vault_id = create_vault(name="abcdef123456", linked=False)
 
             # Verify the results
-            assert vault_id == "abcdef123456", f"Expected 'abcdef123456', got '{vault_id}'"
+            assert (
+                vault_id == "abcdef123456"
+            ), f"Expected 'abcdef123456', got '{vault_id}'"
 
             # Check vault directory and metadata
             vault_dir = vaultic_dir / vault_id
@@ -161,6 +169,7 @@ def test_create_independent_vault(mock_uuid, temp_keys_dir, mock_getpass):
 
             assert vault_dir.exists(), f"Vault dir does not exist at {vault_dir}"
             assert meta_file.exists(), f"Meta file does not exist at {meta_file}"
+
 
 @patch("uuid.uuid4")
 def test_create_linked_vault_no_existing_vaults(mock_uuid, temp_keys_dir, mock_getpass):
@@ -193,7 +202,7 @@ def test_create_linked_vault_no_existing_vaults(mock_uuid, temp_keys_dir, mock_g
                     "salt": "test_salt",
                     "pepper_hash": "test_hash",
                     "version": 1,
-                    "linked": True
+                    "linked": True,
                 }
 
                 meta_path.write_text(json.dumps(meta_data))
@@ -210,11 +219,18 @@ def test_create_linked_vault_no_existing_vaults(mock_uuid, temp_keys_dir, mock_g
             # Check vault directories and metadata files
             main_vault_dir = vaultic_dir / "main123456"
 
-            assert main_vault_dir.exists(), f"Main vault dir not found at {main_vault_dir}" 
-            assert (main_vault_dir / "keys" / "vault-meta.json").exists(), "Main vault metadata missing"
+            assert (
+                main_vault_dir.exists()
+            ), f"Main vault dir not found at {main_vault_dir}"
+            assert (
+                main_vault_dir / "keys" / "vault-meta.json"
+            ).exists(), "Main vault metadata missing"
+
 
 @patch("uuid.uuid4")
-def test_create_linked_vault_with_existing_vault(mock_uuid, temp_keys_dir, mock_getpass):
+def test_create_linked_vault_with_existing_vault(
+    mock_uuid, temp_keys_dir, mock_getpass
+):
     """Test creating a linked vault when a vault already exists."""
     _, vaultic_dir = temp_keys_dir
 
@@ -232,7 +248,7 @@ def test_create_linked_vault_with_existing_vault(mock_uuid, temp_keys_dir, mock_
         "version": 1,
         "linked": False,
         "pepper_hash": "pepper123",
-        "created_at": 1000000
+        "created_at": 1000000,
     }
     (keys_dir / "vault-meta.json").write_text(json.dumps(existing_meta))
 
@@ -260,11 +276,11 @@ def test_create_linked_vault_with_existing_vault(mock_uuid, temp_keys_dir, mock_
                 meta_data = {
                     "vault_id": "newlinked12",
                     "salt": "test_salt",
-                    "version": 1, 
+                    "version": 1,
                     "linked": True,
                     "main_vault": existing_id,
                     "pepper_hash": "pepper123",
-                    "created_at": 1000001
+                    "created_at": 1000001,
                 }
                 meta_path.write_text(json.dumps(meta_data))
 
@@ -273,12 +289,18 @@ def test_create_linked_vault_with_existing_vault(mock_uuid, temp_keys_dir, mock_
             mock_enc.side_effect = create_metadata
 
             # Run the function under test with explicit name
-            vault_id = create_vault(name="newlinked12", linked=True, passphrase="test_password")
+            vault_id = create_vault(
+                name="newlinked12", linked=True, passphrase="test_password"
+            )
 
             # Verify results
-            assert vault_id == "newlinked12", f"Expected 'newlinked12', got '{vault_id}'"
+            assert (
+                vault_id == "newlinked12"
+            ), f"Expected 'newlinked12', got '{vault_id}'"
 
             # Check linked vault directory and metadata
             linked_dir = vaultic_dir / vault_id
             assert linked_dir.exists(), f"Linked vault dir not found at {linked_dir}"
-            assert (linked_dir / "keys" / "vault-meta.json").exists(), "Linked vault metadata missing"
+            assert (
+                linked_dir / "keys" / "vault-meta.json"
+            ).exists(), "Linked vault metadata missing"

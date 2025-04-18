@@ -36,22 +36,21 @@ def generate_index(source_dir: Path, encrypted_dir: Path) -> Dict:
     """
     source_dir = source_dir.resolve()
     encrypted_dir = encrypted_dir.resolve()
-    index = {
-        "root": str(source_dir),
-        "files": []
-    }
+    index = {"root": str(source_dir), "files": []}
 
     for file_path in source_dir.rglob("*"):
         if file_path.is_file():
             relative_path = file_path.relative_to(source_dir)
             encrypted_path = encrypted_dir / (str(relative_path) + ".enc")
 
-            index["files"].append({
-                "relative_path": str(relative_path),
-                "encrypted_path": str(encrypted_path),
-                "size": file_path.stat().st_size,
-                "hash": hash_file(file_path)
-            })
+            index["files"].append(
+                {
+                    "relative_path": str(relative_path),
+                    "encrypted_path": str(encrypted_path),
+                    "size": file_path.stat().st_size,
+                    "hash": hash_file(file_path),
+                }
+            )
 
     return index
 

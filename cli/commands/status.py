@@ -5,6 +5,7 @@ from core.config import Config
 
 app = typer.Typer()
 
+
 @app.callback(invoke_without_command=True)
 def status():
     """
@@ -28,11 +29,15 @@ def status():
     if vaultic_dir.exists():
         print(f"[green]Vaultic directory:[/green] Found at {vaultic_dir.resolve()}")
     else:
-        print(f"[yellow]Vaultic directory:[/yellow] Not found. Will be created when needed.")
+        print(
+            "[yellow]Vaultic directory:[/yellow] Not found. Will be created when needed."
+        )
 
     # Check index file
     index_path = Path(Config.INDEX_FILE)
     if index_path.exists():
         print(f"[green]Index file:[/green] Found at {index_path}")
     else:
-        print(f"[yellow]Index file:[/yellow] Not found at {index_path}. Will be created during first backup.")
+        print(
+            f"[yellow]Index file:[/yellow] Not found at {index_path}. Will be created during first backup."
+        )

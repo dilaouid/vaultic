@@ -4,7 +4,10 @@ from pathlib import Path
 
 from core.encryption.service import EncryptionService
 
-def encrypt_index(index_data: dict, enc_service: EncryptionService, encrypted_dir: Path):
+
+def encrypt_index(
+    index_data: dict, enc_service: EncryptionService, encrypted_dir: Path
+):
     """
     Encrypts and stores the Vaultic index data as an in-memory object.
 

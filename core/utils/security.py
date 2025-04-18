@@ -1,177 +1,108 @@
 """
 Security Utilities - Functions related to secure file operations.
 """
+
 import os
 import platform
-import random
 from pathlib import Path
-from typing import Optional
+
 
 def is_rotational(path: Path) -> bool:
     """
-    Check if the given path is on a rotational drive (HDD).
+    Determine if a file is on a rotational (HDD) or solid-state (SSD) drive.
+
+    This is important for secure deletion, as HDDs require multiple overwrites,
+    while SSDs use wear leveling and can't be securely erased at the file level.
 
     Args:
-        path (Path): Path to check
+        path: Path to check
 
     Returns:
-        bool: True if the path is on a rotational drive, False otherwise
+        bool: True if the file is likely on a rotational drive
     """
+    # On Linux, we can check directly
     if platform.system() == "Linux":
         try:
-            # Get the device where the file is located
-            dev = os.stat(path).st_dev
-            dev_name = get_block_device_from_dev(dev)
-            
-            if dev_name:
-                # Check if the device is rotational
-                rot_path = f"/sys/block/{dev_name}/queue/rotational"
-                if os.path.exists(rot_path):
-                    with open(rot_path, 'r') as f:
-                        return f.read().strip() == '1'
+            # Get the mount point for the file
+            device = os.stat(path).st_dev
+            dev_path = os.path.realpath(
+                f"/sys/dev/block/{os.major(device)}:{os.minor(device)}"
+            )
+
+            # Check if it's rotational
+            rotational_path = os.path.join(dev_path, "queue/rotational")
+            if os.path.exists(rotational_path):
+                with open(rotational_path, "r") as f:
+                    return f.read().strip() == "1"
         except Exception:
             pass
-            
-    # Default to assuming rotational (more secure erase)
+
+    # On macOS, we can check if it's an SSD via diskutil
+    elif platform.system() == "Darwin":
+        try:
+            mount_point = _get_mount_point(path)
+            import subprocess
+
+            output = subprocess.check_output(["diskutil", "info", mount_point]).decode()
+            return "Solid State: No" in output
+        except Exception:
+            pass
+
+    # On Windows, we could check if it's an SSD, but it's complicated
+    # For now, we assume rotational to be safe
     return True
 
-def get_block_device_from_dev(dev: int) -> Optional[str]:
+
+def _get_mount_point(path: Path) -> str:
     """
-    Get the block device name from a device number on Linux.
+    Get the mount point for a path.
 
     Args:
-        dev (int): Device number
+        path: Path to check
 
     Returns:
-        Optional[str]: Block device name or None if not found
+        str: Mount point path
     """
-    try:
-        # This is Linux-specific
-        dev_major = os.major(dev)
-        dev_minor = os.minor(dev)
-        
-        for device in os.listdir('/sys/block'):
-            with open(f'/sys/block/{device}/dev', 'r') as f:
-                major_minor = f.read().strip()
-                major, minor = map(int, major_minor.split(':'))
-                
-                if major == dev_major:
-                    # For the root device itself
-                    if minor == dev_minor:
-                        return device
-                    
-                    # For partitions of the device
-                    for partition in os.listdir(f'/sys/block/{device}'):
-                        if partition.startswith(device) and os.path.isdir(f'/sys/block/{device}/{partition}'):
-                            partition_path = f'/sys/block/{device}/{partition}/dev'
-                            if os.path.exists(partition_path):
-                                with open(partition_path, 'r') as f:
-                                    part_major_minor = f.read().strip()
-                                    part_major, part_minor = map(int, part_major_minor.split(':'))
-                                    if part_major == dev_major and part_minor == dev_minor:
-                                        return device
-    except Exception:
-        pass
-    
-    return None
+    path = path.resolve()
 
-def secure_delete(path: Path, passes: int = 3) -> bool:
+    # Start with the path and walk upwards until we find a different device
+    while path != path.parent:
+        parent_path = path.parent
+        if os.stat(path).st_dev != os.stat(parent_path).st_dev:
+            return str(path)
+        path = parent_path
+
+    return str(path)
+
+
+def secure_delete(path: Path, passes: int = 3) -> None:
     """
     Securely delete a file by overwriting it multiple times before unlinking.
-    
-    Args:
-        path (Path): Path to the file to delete
-        passes (int): Number of overwrite passes (default: 3)
-        
-    Returns:
-        bool: True if successful, False otherwise
-    """
-    if not path.exists() or not path.is_file():
-        return False
-        
-    try:
-        # Get file size
-        file_size = path.stat().st_size
-        
-        # Open file for binary writing
-        with open(path, 'r+b') as f:
-            # Multiple overwrite passes
-            for i in range(passes):
-                # Seek to beginning of file
-                f.seek(0)
-                
-                # Different patterns for each pass
-                if i == 0:
-                    # First pass: all zeros
-                    pattern = b'\x00'
-                elif i == 1:
-                    # Second pass: all ones
-                    pattern = b'\xFF'
-                else:
-                    # Subsequent passes: random data
-                    pattern = bytes([random.randint(0, 255) for _ in range(min(4096, file_size))])
-                
-                # Write pattern in chunks
-                bytes_remaining = file_size
-                while bytes_remaining > 0:
-                    if len(pattern) > bytes_remaining:
-                        f.write(pattern[:bytes_remaining])
-                        bytes_remaining = 0
-                    else:
-                        f.write(pattern)
-                        bytes_remaining -= len(pattern)
-                
-                # Flush to disk
-                f.flush()
-                os.fsync(f.fileno())
-        
-        # Finally unlink (delete) the file
-        path.unlink()
-        return True
-        
-    except Exception:
-        # If any error occurs, try regular delete
-        try:
-            path.unlink()
-            return True
-        except Exception:
-            return False
 
-def generate_secure_passphrase(length: int = 16, include_special: bool = True) -> str:
-    """
-    Generate a cryptographically secure random passphrase.
-    
     Args:
-        length (int): Length of the passphrase (default: 16)
-        include_special (bool): Include special characters (default: True)
-        
-    Returns:
-        str: The generated passphrase
+        path: Path to the file to delete
+        passes: Number of overwrite passes
     """
-    import secrets
-    import string
-    
-    # Character sets
-    lowercase = string.ascii_lowercase
-    uppercase = string.ascii_uppercase
-    digits = string.digits
-    special = string.punctuation if include_special else ""
-    
-    # Ensure at least one character from each set
-    passphrase = [
-        secrets.choice(lowercase),
-        secrets.choice(uppercase),
-        secrets.choice(digits)
-    ]
-    
-    if include_special:
-        passphrase.append(secrets.choice(special))
-    
-    # Fill remaining length with random characters from all sets
-    all_chars = lowercase + uppercase + digits + special
-    passphrase.extend(secrets.choice(all_chars) for _ in range(length - len(passphrase)))
-    
-    # Shuffle the passphrase
-    secrets.SystemRandom().shuffle(passphrase)
-    
-    return ''.join(passphrase)
+    if not path.exists():
+        return
+
+    # Get file size
+    file_size = path.stat().st_size
+
+    # Skip secure deletion for very large files (performance)
+    # or zero-byte files (no data to overwrite)
+    if file_size == 0 or file_size > 100 * 1024 * 1024:  # 100 MB
+        path.unlink()
+        return
+
+    # Overwrite with random data
+    with open(path, "r+b") as f:
+        for _ in range(passes):
+            f.seek(0)
+            # Write random bytes
+            f.write(os.urandom(file_size))
+            f.flush()
+            os.fsync(f.fileno())
+
+    # Delete the file
+    path.unlink()

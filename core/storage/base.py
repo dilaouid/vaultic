@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 from pathlib import Path
 
+
 class StorageProvider(ABC):
     """
     Abstract base class for a cloud storage provider.

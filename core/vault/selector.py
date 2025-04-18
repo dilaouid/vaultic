@@ -4,6 +4,7 @@ from rich import print
 import questionary
 import uuid
 
+
 def list_existing_vaults(keys_dir: Path) -> list[Path]:
     """
     List all vault metadata files in the given directory.
@@ -15,6 +16,7 @@ def list_existing_vaults(keys_dir: Path) -> list[Path]:
         List[Path]: List of vaultic_meta.json files.
     """
     return sorted(keys_dir.glob("*/vaultic_meta.json"))
+
 
 def create_new_vault(keys_dir: Path) -> Path:
     """
@@ -30,6 +32,7 @@ def create_new_vault(keys_dir: Path) -> Path:
     new_vault_dir = keys_dir / new_id
     new_vault_dir.mkdir(parents=True, exist_ok=True)
     return new_vault_dir / "vaultic_meta.json"
+
 
 def select_or_create_vault(keys_dir: Path) -> Tuple[str, Path]:
     """
@@ -53,10 +56,7 @@ def select_or_create_vault(keys_dir: Path) -> Tuple[str, Path]:
         return vaults[0].parent.name, vaults[0]
 
     choices = [v.parent.name for v in vaults]
-    selected = questionary.select(
-        "🔐 Choose a vault:",
-        choices=choices
-    ).ask()
+    selected = questionary.select("🔐 Choose a vault:", choices=choices).ask()
 
     if not selected:
         raise Exception("Vault selection was cancelled.")

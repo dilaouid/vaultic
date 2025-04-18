@@ -2,6 +2,7 @@ import tempfile
 from pathlib import Path
 from core.indexing.indexer import generate_index
 
+
 def test_generate_index_structure_and_paths():
     with tempfile.TemporaryDirectory() as tmp_dir:
         tmp = Path(tmp_dir)

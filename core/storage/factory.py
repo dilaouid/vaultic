@@ -1,6 +1,5 @@
-from core.config import Config
-from core.storage.mock import MockLocalProvider
 from core.storage.local import LocalStorage
+
 
 def get_provider(name: str):
     if name == "local":

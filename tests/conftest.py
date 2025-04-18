@@ -2,6 +2,7 @@ import pytest
 from dotenv import load_dotenv
 from pathlib import Path
 
+
 @pytest.fixture(autouse=True, scope="session")
 def load_test_env():
     """

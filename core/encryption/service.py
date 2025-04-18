@@ -1,6 +1,7 @@
 """
 Encryption Service - Provides secure file encryption and decryption using AES.
 """
+
 import hashlib
 import hmac
 import json
@@ -25,6 +26,7 @@ PEPPER = Config.VAULTIC_PEPPER.encode()
 # Magic header for identifying Vaultic encrypted files
 MAGIC_HEADER = b"VAULTICv1\n"
 
+
 class EncryptionService:
     """
     EncryptionService handles file encryption and decryption using Fernet (AES-256) symmetric encryption,
@@ -37,25 +39,24 @@ class EncryptionService:
         Initialize the encryption service with a passphrase and metadata file.
         """
         self.meta_path = Path(meta_path).expanduser()
-        
+
         # Store the passphrase (keep as string for now)
         self.passphrase_str = passphrase
         self.meta = self._load_or_create_metadata()
         self.salt = self.meta["salt"]
-        
+
         # Derive keys
         self.key = self._derive_key("ENCRYPT")
         self.hmac_key = self._derive_key("HMAC")
         self.fernet = Fernet(self.key)
-        
+
         # Create a copy of the test content for verification
         self.test_content = b"vaultic-test"
-        
+
         # For new vaults, create the test file
         if self._is_new:
             print("New vault detected, creating test file...")
             self.create_meta_test_file()
-
 
     def _secure_clear_passphrase(self):
         """
@@ -64,7 +65,7 @@ class EncryptionService:
         but provides an additional security measure.
         """
         # Overwrite with random data before deletion
-        if hasattr(self, 'passphrase'):
+        if hasattr(self, "passphrase"):
             for i in range(len(self.passphrase)):
                 self.passphrase = os.urandom(len(self.passphrase))
             del self.passphrase
@@ -73,11 +74,10 @@ class EncryptionService:
         """
         Derive a secure encryption key using PBKDF2HMAC with an additional pepper.
         """
-        print(f"[yellow]Deriving key for purpose: {purpose}[/yellow]")
-        
+
         # Convert passphrase to bytes if it's a string
         if isinstance(self.passphrase_str, str):
-            passphrase_bytes = self.passphrase_str.encode('utf-8')
+            passphrase_bytes = self.passphrase_str.encode("utf-8")
         else:
             passphrase_bytes = self.passphrase_str
 
@@ -93,7 +93,7 @@ class EncryptionService:
             length=32,
             salt=salt,
             iterations=390_000,
-            backend=default_backend()
+            backend=default_backend(),
         )
 
         # Derive key
@@ -128,7 +128,9 @@ class EncryptionService:
         tag = hmac.new(self.hmac_key, encrypted, hashlib.sha256).digest()
         Path(hmac_path).write_bytes(tag)
 
-    def encrypt_file(self, input_path: str, output_path: str, hmac_path: Optional[str] = None):
+    def encrypt_file(
+        self, input_path: str, output_path: str, hmac_path: Optional[str] = None
+    ):
         """
         Encrypt and compress a file, then write the result and its HMAC.
 
@@ -139,7 +141,11 @@ class EncryptionService:
         """
         input_path = Path(input_path)
         output_path = Path(output_path)
-        hmac_path = Path(hmac_path) if hmac_path else output_path.with_suffix(output_path.suffix + ".hmac")
+        hmac_path = (
+            Path(hmac_path)
+            if hmac_path
+            else output_path.with_suffix(output_path.suffix + ".hmac")
+        )
 
         # Read the original file
         original_content = input_path.read_bytes()
@@ -170,9 +176,26 @@ class EncryptionService:
         """
         input_path = Path(input_path)
         output_path = Path(output_path)
-        hmac_path = input_path.with_suffix(input_path.suffix + ".hmac")
+
+        # Determine the correct HMAC path
+        input_path_str = str(input_path)
+        if "/content/" in input_path_str or "\\content\\" in input_path_str:
+            # Handle both Unix and Windows paths
+            hmac_path_str = (
+                input_path_str.replace("/content/", "/hmac/").replace(
+                    "\\content\\", "\\hmac\\"
+                )
+                + ".hmac"
+            )
+            hmac_path = Path(hmac_path_str)
+        else:
+            # Fallback to the old behavior for backward compatibility
+            hmac_path = input_path.with_suffix(input_path.suffix + ".hmac")
 
         # Read the encrypted file
+        if not input_path.exists():
+            raise ValueError(f"Encrypted file not found: {input_path}")
+
         encrypted = input_path.read_bytes()
 
         # Verify magic header to ensure this is a Vaultic encrypted file
@@ -180,7 +203,7 @@ class EncryptionService:
             raise ValueError("Invalid or missing Vaultic magic header")
 
         # Remove magic header before decryption
-        encrypted = encrypted[len(MAGIC_HEADER):]
+        encrypted = encrypted[len(MAGIC_HEADER) :]
 
         # Verify file integrity with HMAC
         if not hmac_path.exists():
@@ -198,7 +221,6 @@ class EncryptionService:
 
         # Write the decrypted file
         output_path.write_bytes(original_content)
-        print(f"[green]✅ Decrypted to:[/green] {output_path}")
 
     def _load_or_create_metadata(self) -> dict:
         """
@@ -210,24 +232,23 @@ class EncryptionService:
         if self.meta_path.exists():
             print(f"Loading existing metadata from: {self.meta_path}")
             try:
-                with open(self.meta_path, 'r') as f:
+                with open(self.meta_path, "r") as f:
                     metadata = json.load(f)
-                    print(f"Loaded metadata: {metadata}")
-                    
+
                 # Check if salt exists
-                if 'salt' not in metadata:
+                if "salt" not in metadata:
                     print("WARNING: No salt found in metadata, adding it")
                     salt = os.urandom(16).hex()
-                    metadata['salt'] = salt
+                    metadata["salt"] = salt
 
                 # Add pepper hash for security validation
                 pepper_hash = hashlib.sha256(PEPPER).hexdigest()
-                metadata['pepper_hash'] = pepper_hash
+                metadata["pepper_hash"] = pepper_hash
 
                 # Save metadata
-                with open(self.meta_path, 'w') as f:
+                with open(self.meta_path, "w") as f:
                     json.dump(metadata, f, indent=2)
-                
+
                 self._is_new = False
                 return metadata
             except Exception as e:
@@ -239,10 +260,10 @@ class EncryptionService:
         pepper_hash = hashlib.sha256(PEPPER).hexdigest()
 
         meta = {
-            "salt": salt, 
+            "salt": salt,
             "pepper_hash": pepper_hash,
             "version": 1,
-            "created_at": __import__('time').time()
+            "created_at": __import__("time").time(),
         }
 
         self.meta_path.parent.mkdir(parents=True, exist_ok=True)
@@ -279,15 +300,19 @@ class EncryptionService:
 
         try:
             encrypted = test_path.read_bytes()
-            
+
             try:
                 decrypted = self.fernet.decrypt(encrypted)
-                
-                if decrypted != self.test_content:
-                    print(f"[red]Content mismatch. Expected: {self.test_content}, Got: {decrypted}[/red]")
-                    raise ValueError("Corrupted .meta-test file - content doesn't match")
 
-                print(f"[green]✅ Passphrase verification successful![/green]")
+                if decrypted != self.test_content:
+                    print(
+                        f"[red]Content mismatch. Expected: {self.test_content}, Got: {decrypted}[/red]"
+                    )
+                    raise ValueError(
+                        "Corrupted .meta-test file - content doesn't match"
+                    )
+
+                print("[green]✅ Passphrase verification successful![/green]")
             except Exception as e:
                 print(f"Error during decryption: {str(e)}")
                 raise

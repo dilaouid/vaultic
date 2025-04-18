@@ -1,9 +1,9 @@
 """
 DoS Utilities - Functions for rate limiting and preventing resource exhaustion.
 """
+
 import time
 import threading
-from typing import Dict
 
 # Global state variables
 _last_processed_time = 0.0
@@ -17,24 +17,26 @@ DEFAULT_MAX_RATE = 10  # files per second
 DEFAULT_MAX_ERRORS = 5  # maximum consecutive errors before cooldown
 ERROR_COOLDOWN = 2.0  # seconds to wait after hitting max errors
 
+
 def throttle(interval: float = DEFAULT_MIN_INTERVAL) -> None:
     """
     Sleep for a minimum interval to prevent resource exhaustion.
-    
+
     Args:
         interval (float): Minimum time between operations in seconds
     """
     time.sleep(interval)
 
+
 def can_process_file() -> bool:
     """
     Check if a file can be processed based on rate limits.
-    
+
     Returns:
         bool: True if processing is allowed, False otherwise
     """
     global _last_processed_time, _processed_count, _error_count
-    
+
     with _lock:
         now = time.time()
 
@@ -58,6 +60,7 @@ def can_process_file() -> bool:
 
         return True
 
+
 def register_file_processed() -> None:
     """
     Register that a file has been processed to enforce rate limiting.
@@ -68,10 +71,11 @@ def register_file_processed() -> None:
         _last_processed_time = time.time()
         _processed_count += 1
 
+
 def register_error() -> bool:
     """
     Register an error occurrence to enable cooldown if too many errors happen.
-    
+
     Returns:
         bool: True if max errors exceeded, False otherwise
     """
@@ -80,6 +84,7 @@ def register_error() -> bool:
     with _lock:
         _error_count += 1
         return _error_count >= DEFAULT_MAX_ERRORS
+
 
 def reset_counters() -> None:
     """
