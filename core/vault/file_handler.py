@@ -3,11 +3,12 @@ File Handler - Manages the encryption, storage, and indexing of files in a vault
 """
 
 import hashlib
-from pathlib import Path
-from typing import Optional
 import os
+import json
 
 from rich import print
+from pathlib import Path
+from typing import Optional
 from core.utils.security import secure_delete, is_rotational
 from core.utils.dos import register_error
 from core.config import Config
@@ -120,6 +121,9 @@ def encrypt_and_store_file(
         if index_manager:
             index_manager.add_file(rel_path, hashed_name, file_size)
             print(f"[green]✅ Added to encrypted index: {rel_path}[/green]")
+
+            # Update file count in metadata
+            update_vault_file_count(encrypted_dir.parent, 1)
         else:
             # This should never happen as we check above
             print("[red]❌ Cannot update index - no index manager provided[/red]")
@@ -145,3 +149,30 @@ def encrypt_and_store_file(
         print(f"[red]❌ Error processing file {rel_path}: {str(e)}[/red]")
         register_error()
         return False
+
+
+def update_vault_file_count(vault_dir: Path, delta: int) -> None:
+    """
+    Update the file count in the vault metadata.
+
+    Args:
+        vault_dir: Path to the vault directory
+        delta: Change in file count (positive for additions, negative for removals)
+    """
+    try:
+        meta_path = vault_dir / "keys" / "vault-meta.json"
+        if meta_path.exists():
+            with open(meta_path, "r") as f:
+                metadata = json.load(f)
+
+            # Update file count, ensuring it doesn't go below 0
+            current_count = metadata.get("file_count", 0)
+            new_count = max(0, current_count + delta)
+            metadata["file_count"] = new_count
+
+            with open(meta_path, "w") as f:
+                json.dump(metadata, f, indent=2)
+    except Exception as e:
+        print(
+            f"[yellow]⚠️ Warning: Could not update file count in metadata: {e}[/yellow]"
+        )

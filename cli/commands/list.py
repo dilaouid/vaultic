@@ -22,8 +22,29 @@ app = typer.Typer()
 def list_vaults_cmd():
     """
     List all available vaults.
+
+    The command will prompt for a passphrase to decrypt index files for accurate file counts.
     """
-    vaults = list_vaults()
+    from getpass import getpass
+
+    # Ask for passphrase securely (won't appear in terminal history)
+    passphrase = None
+    try:
+        passphrase = getpass("🔑 Enter vault passphrase (or press Enter to skip): ")
+        # Allow empty input to skip decryption
+        if passphrase == "":
+            passphrase = None
+            print(
+                "[yellow]Skipping index decryption. File counts may not be accurate.[/yellow]"
+            )
+    except KeyboardInterrupt:
+        print(
+            "\n[yellow]Passphrase input cancelled. Using metadata file counts.[/yellow]"
+        )
+        passphrase = None
+
+    # Always get vaults list, even if passphrase is None or there's an error
+    vaults = list_vaults(passphrase=passphrase)
 
     if not vaults:
         print(
@@ -31,25 +52,43 @@ def list_vaults_cmd():
         )
         return
 
+    # Always display the table
     console = Console()
     table = Table(show_header=True, header_style="bold blue")
     table.add_column("ID", style="dim")
     table.add_column("Name")
     table.add_column("Created")
     table.add_column("Files", justify="right")
+    table.add_column("Status", justify="center")  # New column for decryption status
     table.add_column("Path", style="dim")
 
     for vault in vaults:
         created = time.strftime("%Y-%m-%d %H:%M", time.localtime(vault["created_at"]))
+
+        # Set status indicator based on decryption status
+        status = "[green]✓[/green]" if vault["decrypted"] else "[red]![/red]"
+
+        # Format file count
+        file_count = str(vault["file_count"])
+        if not vault["decrypted"] and passphrase and vault["file_count"] == 0:
+            # If we tried to decrypt but failed and count is 0, mark it specially
+            file_count = "[yellow]" + file_count + "[/yellow]"
+
         table.add_row(
             vault["id"],
             vault.get("name", vault["id"]),
             created,
-            str(vault["file_count"]),
+            file_count,
+            status,
             vault["path"],
         )
 
     console.print(table)
+
+    # Add legend if passphrase was provided
+    if passphrase:
+        print("\n[green]✓[/green] = Index successfully decrypted")
+        print("[red]![/red] = Failed to decrypt index, counts may be inaccurate")
 
 
 @app.command("files")
@@ -123,10 +162,6 @@ def list_files_cmd(
                 print("[blue]Loading encrypted index...[/blue]")
                 index = index_manager.load()
                 files_found = len(index)
-
-                print(
-                    f"[green]Successfully loaded encrypted index with {files_found} entries.[/green]"
-                )
 
             except Exception as e:
                 print(f"[red]❌ Error decrypting index: {str(e)}[/red]")

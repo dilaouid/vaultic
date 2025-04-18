@@ -281,6 +281,12 @@ class VaultIndexManager:
             del index[rel_path]
             self.modified = True
             print(f"[yellow]Removed file from index: {rel_path}[/yellow]")
+
+            # Update file count in metadata
+            from core.vault.file_handler import update_vault_file_count
+
+            update_vault_file_count(self.vault_dir, -1)
+
             return True
 
         return False
