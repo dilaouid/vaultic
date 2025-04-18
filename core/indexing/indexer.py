@@ -1,7 +1,9 @@
-import hashlib
 import json
 from pathlib import Path
-from typing import List, Dict
+from typing import Dict
+
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.backends import default_backend
 
 
 def hash_file(path: Path) -> str:
@@ -14,11 +16,11 @@ def hash_file(path: Path) -> str:
     Returns:
         str: SHA256 hash as hex string.
     """
-    sha256 = hashlib.sha256()
+    digest = hashes.Hash(hashes.SHA256(), backend=default_backend())
     with path.open("rb") as f:
         for chunk in iter(lambda: f.read(4096), b""):
-            sha256.update(chunk)
-    return sha256.hexdigest()
+            digest.update(chunk)
+    return digest.finalize().hex()
 
 
 def generate_index(source_dir: Path, encrypted_dir: Path) -> Dict:
@@ -34,22 +36,21 @@ def generate_index(source_dir: Path, encrypted_dir: Path) -> Dict:
     """
     source_dir = source_dir.resolve()
     encrypted_dir = encrypted_dir.resolve()
-    index = {
-        "root": str(source_dir),
-        "files": []
-    }
+    index = {"root": str(source_dir), "files": []}
 
     for file_path in source_dir.rglob("*"):
         if file_path.is_file():
             relative_path = file_path.relative_to(source_dir)
             encrypted_path = encrypted_dir / (str(relative_path) + ".enc")
 
-            index["files"].append({
-                "relative_path": str(relative_path),
-                "encrypted_path": str(encrypted_path),
-                "size": file_path.stat().st_size,
-                "hash": hash_file(file_path)
-            })
+            index["files"].append(
+                {
+                    "relative_path": str(relative_path),
+                    "encrypted_path": str(encrypted_path),
+                    "size": file_path.stat().st_size,
+                    "hash": hash_file(file_path),
+                }
+            )
 
     return index
 

@@ -2,6 +2,7 @@ from .base import StorageProvider
 from pathlib import Path
 import shutil
 
+
 class MockLocalProvider(StorageProvider):
     """
     Mock provider that stores backups in a local ./mock_remote/ folder.
@@ -23,4 +24,8 @@ class MockLocalProvider(StorageProvider):
         shutil.copy2(src, local_path)
 
     def list_files(self) -> list[str]:
-        return [str(p.relative_to(self.remote_root)) for p in self.remote_root.rglob("*") if p.is_file()]
+        return [
+            str(p.relative_to(self.remote_root))
+            for p in self.remote_root.rglob("*")
+            if p.is_file()
+        ]
