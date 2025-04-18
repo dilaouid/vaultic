@@ -215,7 +215,7 @@ def start_vault_watcher(vault_id, passphrase, meta_path=None):
 
     # Create and start the observer
     observer = Observer()
-    observer.schedule(event_handler, str(vault_dir), recursive=True)
+    observer.schedule(event_handler, Path(".vaultic"), recursive=True)
     observer.start()
 
     try:
