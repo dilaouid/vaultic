@@ -8,7 +8,9 @@ import json
 import os
 import base64
 import zlib
-from typing import Optional
+import tarfile
+import io
+from typing import Dict
 from pathlib import Path
 from rich import print
 
@@ -25,6 +27,10 @@ PEPPER = Config.VAULTIC_PEPPER.encode()
 
 # Magic header for identifying Vaultic encrypted files
 MAGIC_HEADER = b"VAULTICv1\n"
+
+# Constants for the encrypted archive
+ARCHIVE_FILENAME = "data.enc"
+ARCHIVE_HMAC_FILENAME = "data.enc.hmac"
 
 
 class EncryptionService:
@@ -128,24 +134,18 @@ class EncryptionService:
         tag = hmac.new(self.hmac_key, encrypted, hashlib.sha256).digest()
         Path(hmac_path).write_bytes(tag)
 
-    def encrypt_file(
-        self, input_path: str, output_path: str, hmac_path: Optional[str] = None
-    ):
+    def encrypt_file(self, input_path: str, output_path: str, hmac_path: str):
         """
         Encrypt and compress a file, then write the result and its HMAC.
 
         Args:
             input_path (str): Path to the plaintext input file
             output_path (str): Path to save the encrypted file
-            hmac_path (Optional[str]): Optional custom path for the HMAC file
+            hmac_path (str): Path to save the HMAC file
         """
         input_path = Path(input_path)
         output_path = Path(output_path)
-        hmac_path = (
-            Path(hmac_path)
-            if hmac_path
-            else output_path.with_suffix(output_path.suffix + ".hmac")
-        )
+        hmac_path = Path(hmac_path)
 
         # Read the original file
         original_content = input_path.read_bytes()
@@ -323,3 +323,161 @@ class EncryptionService:
 
         # Now that verification is complete, we can clear the passphrase
         self._secure_clear_passphrase()
+
+    def create_encrypted_archive(
+        self, files: Dict[str, bytes], output_path: Path
+    ) -> None:
+        """
+        Create a single encrypted archive containing multiple files.
+
+        Args:
+            files: Dictionary mapping filenames to their content
+            output_path: Path where to save the encrypted archive
+        """
+        # Create a tar archive in memory
+        tar_buffer = io.BytesIO()
+        with tarfile.open(fileobj=tar_buffer, mode="w:gz") as tar:
+            for filename, content in files.items():
+                # Create a file-like object for the content
+                file_obj = io.BytesIO(content)
+                # Add file to tar archive
+                tarinfo = tarfile.TarInfo(name=filename)
+                tarinfo.size = len(content)
+                tar.addfile(tarinfo, file_obj)
+
+        # Get the compressed tar data
+        compressed_data = tar_buffer.getvalue()
+
+        # Encrypt the compressed data
+        encrypted = self.fernet.encrypt(compressed_data)
+
+        # Write encrypted data with magic header
+        output_path.write_bytes(MAGIC_HEADER + encrypted)
+
+        # Generate and write HMAC
+        hmac_path = output_path.with_suffix(output_path.suffix + ".hmac")
+        tag = hmac.new(self.hmac_key, encrypted, hashlib.sha256).digest()
+        hmac_path.write_bytes(tag)
+
+    def extract_from_archive(self, archive_path: Path) -> Dict[str, bytes]:
+        """
+        Extract files from an encrypted archive.
+
+        Args:
+            archive_path: Path to the encrypted archive
+
+        Returns:
+            Dictionary mapping filenames to their content
+        """
+        # Read the encrypted file
+        if not archive_path.exists():
+            raise ValueError(f"Encrypted archive not found: {archive_path}")
+
+        encrypted = archive_path.read_bytes()
+
+        # Verify magic header
+        if not encrypted.startswith(MAGIC_HEADER):
+            raise ValueError("Invalid or missing Vaultic magic header")
+
+        # Remove magic header
+        encrypted = encrypted[len(MAGIC_HEADER) :]
+
+        # Verify HMAC
+        hmac_path = archive_path.with_suffix(archive_path.suffix + ".hmac")
+        if not hmac_path.exists():
+            raise ValueError("Missing HMAC file for integrity check")
+
+        expected_tag = hmac_path.read_bytes()
+        actual_tag = hmac.new(self.hmac_key, encrypted, hashlib.sha256).digest()
+        if not hmac.compare_digest(expected_tag, actual_tag):
+            raise ValueError("HMAC integrity check failed")
+
+        # Decrypt the data
+        decrypted = self.fernet.decrypt(encrypted)
+
+        # Extract files from tar archive
+        files = {}
+        with tarfile.open(fileobj=io.BytesIO(decrypted), mode="r:gz") as tar:
+            for member in tar.getmembers():
+                if member.isfile():
+                    files[member.name] = tar.extractfile(member).read()
+
+        return files
+
+    def create_file_hmac(self, file_path: Path) -> bytes:
+        """
+        Create HMAC for a file.
+
+        Args:
+            file_path: Path to the file
+
+        Returns:
+            bytes: HMAC value
+        """
+        # Read file content
+        with open(file_path, "rb") as f:
+            content = f.read()
+
+        # Create HMAC
+        h = hmac.new(self.key, content, hashlib.sha256)
+        return h.digest()
+
+    def verify_file_hmac(self, file_path: Path, hmac_value: bytes) -> bool:
+        """
+        Verify HMAC for a file.
+
+        Args:
+            file_path: Path to the file
+            hmac_value: HMAC value to verify against
+
+        Returns:
+            bool: True if HMAC is valid
+        """
+        expected_hmac = self.create_file_hmac(file_path)
+        return hmac.compare_digest(expected_hmac, hmac_value)
+
+    def decrypt_bytes(self, input_path: str, hmac_path: str) -> bytes:
+        """
+        Decrypt and decompress a file after verifying its HMAC, returning the decrypted bytes.
+
+        Args:
+            input_path (str): Path to the encrypted file
+            hmac_path (str): Path to the HMAC file
+
+        Returns:
+            bytes: The decrypted and decompressed data
+
+        Raises:
+            ValueError: If HMAC integrity check fails or magic header is missing
+        """
+        input_path = Path(input_path)
+        hmac_path = Path(hmac_path)
+
+        # Read the encrypted file
+        if not input_path.exists():
+            raise ValueError(f"Encrypted file not found: {input_path}")
+
+        encrypted = input_path.read_bytes()
+
+        # Verify magic header to ensure this is a Vaultic encrypted file
+        if not encrypted.startswith(MAGIC_HEADER):
+            raise ValueError("Invalid or missing Vaultic magic header")
+
+        # Remove magic header before decryption
+        encrypted = encrypted[len(MAGIC_HEADER) :]
+
+        # Verify file integrity with HMAC
+        if not hmac_path.exists():
+            raise ValueError("Missing HMAC file for integrity check")
+
+        expected_tag = hmac_path.read_bytes()
+        actual_tag = hmac.new(self.hmac_key, encrypted, hashlib.sha256).digest()
+
+        if not hmac.compare_digest(expected_tag, actual_tag):
+            raise ValueError("HMAC mismatch: file integrity compromised")
+
+        # Decrypt and decompress
+        decrypted_compressed = self.fernet.decrypt(encrypted)
+        original_content = zlib.decompress(decrypted_compressed)
+
+        return original_content

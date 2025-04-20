@@ -7,7 +7,7 @@ import uuid
 import time
 from rich import print
 from pathlib import Path
-from typing import Optional, Tuple, Dict, List
+from typing import Optional, Dict, List
 
 from core.encryption.service import EncryptionService
 from core.config import Config
@@ -133,12 +133,11 @@ def list_vaults(passphrase: Optional[str] = None) -> List[Dict]:
 
                 # Define index paths
                 encrypted_index_path = (
-                    vault_dir / "encrypted" / "content" / "index.json.enc"
+                    vault_dir / "encrypted" / "index" / "index.json.enc"
                 )
                 encrypted_hmac_path = (
-                    vault_dir / "encrypted" / "hmac" / "index.json.enc.hmac"
+                    vault_dir / "encrypted" / "index" / "index.json.enc.hmac"
                 )
-                legacy_index_path = vault_dir / "encrypted" / "index.json"
 
                 # Try to get accurate file count from encrypted index if it exists and passphrase is provided
                 if (
@@ -163,24 +162,14 @@ def list_vaults(passphrase: Optional[str] = None) -> List[Dict]:
                             file_count = len(index)
                             decrypted = True  # Mark as successfully decrypted
                         except Exception:
-                            # Passphrase verification failed, will fall back to legacy or metadata
+                            # Passphrase verification failed, will fall back to metadata
                             pass
                     except Exception:
-                        # Decryption failed, will fall back to legacy or metadata
+                        # Decryption failed, will fall back to metadata
                         pass
 
-                # If we couldn't get file count from encrypted index, fall back to legacy index
-                if file_count == 0 and legacy_index_path.exists():
-                    try:
-                        with open(legacy_index_path, "r") as f:
-                            index = json.load(f)
-                            file_count = len(index)
-                            decrypted = True  # Legacy index is not encrypted, treat as "decrypted"
-                    except Exception:
-                        # If legacy index can't be read, fall back to metadata
-                        file_count = metadata.get("file_count", 0)
-                # If no file count from indexes, use metadata
-                elif file_count == 0:
+                # If no file count from index, use metadata
+                if file_count == 0:
                     file_count = metadata.get("file_count", 0)
 
                 vaults.append(
@@ -190,8 +179,9 @@ def list_vaults(passphrase: Optional[str] = None) -> List[Dict]:
                         "created_at": metadata.get("created_at", 0),
                         "linked": metadata.get("linked", False),
                         "file_count": file_count,
-                        "decrypted": decrypted,  # Add decryption status to the result
+                        "decrypted": decrypted,
                         "path": str(vault_dir),
+                        "meta_path": meta_path,
                     }
                 )
             except Exception as e:
@@ -209,54 +199,77 @@ def list_vaults(passphrase: Optional[str] = None) -> List[Dict]:
     return vaults
 
 
-def select_vault(vault_id: Optional[str] = None) -> Tuple[str, Path]:
+def select_vault(vault_id: Optional[str] = None) -> tuple[str, Path]:
     """
-    Select a vault or prompt the user to choose one if multiple exist.
+    Select a vault to use.
 
     Args:
-        vault_id: Optional specific vault ID to select.
+        vault_id: Optional ID of the vault to select
 
     Returns:
-        Tuple[str, Path]: The selected vault ID and path to its metadata file.
+        tuple[str, Path]: Selected vault ID and metadata path
     """
-    from rich.prompt import Prompt
+    vaults_dir = Path(".vaultic")
+    if not vaults_dir.exists():
+        print("[red]❌ No vaults found. Please create a vault first.[/red]")
+        raise ValueError("No vaults found")
 
-    vaults = list_vaults()
+    # Get list of vaults
+    vaults = []
+    for vault_dir in vaults_dir.iterdir():
+        if vault_dir.is_dir():
+            meta_path = vault_dir / "keys" / "vault-meta.json"
+            if meta_path.exists():
+                try:
+                    with open(meta_path, "r") as f:
+                        metadata = json.load(f)
+                    vaults.append(
+                        (vault_dir.name, metadata.get("name", vault_dir.name))
+                    )
+                except:
+                    continue
 
     if not vaults:
-        raise ValueError("No vaults found. Create one first with 'vaultic create'.")
+        print("[red]❌ No valid vaults found. Please create a vault first.[/red]")
+        raise ValueError("No valid vaults found")
 
+    # If vault_id is provided, try to find it
     if vault_id:
-        vault_path = get_vaults_directory() / vault_id
-        if vault_path.exists():
-            meta_path = vault_path / "keys" / "vault-meta.json"
-            if meta_path.exists():
-                print(f"Found vault at: {vault_path}")
-                print(f"Using metadata: {meta_path}")
-                return vault_id, meta_path
-            else:
-                print(f"Metadata file not found: {meta_path}")
-        else:
-            print(f"Vault directory not found: {vault_path}")
+        for v_id, v_name in vaults:
+            if v_id == vault_id:
+                return v_id, vaults_dir / v_id / "keys" / "vault-meta.json"
+        print(f"[red]❌ Vault not found: {vault_id}[/red]")
+        raise ValueError(f"Vault not found: {vault_id}")
 
-    # If only one vault exists, select it automatically
+    # If only one vault, use it
     if len(vaults) == 1:
-        vault = vaults[0]
-        meta_path = Path(vault["path"]) / "keys" / "vault-meta.json"
-        return vault["id"], meta_path
+        v_id, v_name = vaults[0]
+        print(f"[green]Using vault: {v_name}[/green]")
+        return v_id, vaults_dir / v_id / "keys" / "vault-meta.json"
 
-    # Multiple vaults - prompt user to select one
-    print("[blue]Multiple vaults found. Select one:[/blue]")
-    for i, vault in enumerate(vaults):
-        created = time.strftime("%Y-%m-%d %H:%M", time.localtime(vault["created_at"]))
-        print(
-            f"  [{i+1}] {vault['id']} (Created: {created}, Files: {vault['file_count']})"
-        )
+    # Multiple vaults, use questionary
+    import questionary
 
-    choice = Prompt.ask(
-        "Enter vault number", choices=[str(i + 1) for i in range(len(vaults))]
-    )
-    selected = vaults[int(choice) - 1]
-    meta_path = Path(selected["path"]) / "keys" / "vault-meta.json"
+    choices = [f"{v_name} ({v_id})" for v_id, v_name in vaults]
+    answer = questionary.select(
+        "Select a vault:",
+        choices=choices,
+        use_indicator=True,
+        style=questionary.Style(
+            [
+                ("selected", "fg:cyan bold"),
+                ("pointer", "fg:cyan bold"),
+                ("highlighted", "fg:cyan bold"),
+            ]
+        ),
+    ).ask()
 
-    return selected["id"], meta_path
+    if not answer:
+        raise ValueError("No vault selected")
+
+    # Extract vault ID from selection
+    selected_name = answer.split(" (")[0]
+    selected_id = answer.split("(")[1].rstrip(")")
+
+    print(f"[green]Selected vault: {selected_name}[/green]")
+    return selected_id, vaults_dir / selected_id / "keys" / "vault-meta.json"

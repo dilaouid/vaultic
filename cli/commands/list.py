@@ -121,8 +121,8 @@ def list_files_cmd(
 
     # Check for encrypted index
     encrypted_dir = vault_path / "encrypted"
-    encrypted_index_path = encrypted_dir / "content" / "index.json.enc"
-    encrypted_hmac_path = encrypted_dir / "hmac" / "index.json.enc.hmac"
+    encrypted_index_path = encrypted_dir / "index" / "index.json.enc"
+    encrypted_hmac_path = encrypted_dir / "index" / "index.json.enc.hmac"
 
     # Legacy index path (for error messages only)
     legacy_index_path = encrypted_dir / "index.json"
@@ -202,7 +202,7 @@ def list_files_cmd(
         elif size > 1024:
             size_str = f"{size/1024:.1f} KB"
 
-        timestamp = file_info.get("timestamp", 0)
+        timestamp = file_info.get("added", 0)
         date_str = time.strftime("%Y-%m-%d %H:%M", time.localtime(timestamp))
 
         table.add_row(filepath, size_str, "✓", date_str)

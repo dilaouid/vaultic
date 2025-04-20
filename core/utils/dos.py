@@ -4,6 +4,8 @@ DoS Utilities - Functions for rate limiting and preventing resource exhaustion.
 
 import time
 import threading
+from typing import Optional
+from pathlib import Path
 
 # Global state variables
 _last_processed_time = 0.0
@@ -28,9 +30,12 @@ def throttle(interval: float = DEFAULT_MIN_INTERVAL) -> None:
     time.sleep(interval)
 
 
-def can_process_file() -> bool:
+def can_process_file(path: Optional[Path] = None) -> bool:
     """
     Check if a file can be processed based on rate limits.
+
+    Args:
+        path: Optional path to check if file is being written to
 
     Returns:
         bool: True if processing is allowed, False otherwise
@@ -57,6 +62,17 @@ def can_process_file() -> bool:
             if elapsed < 1.0:  # Reset count after 1 second
                 return False
             _processed_count = 0
+
+        # If path is provided, check if file exists and is readable
+        if path is not None:
+            try:
+                # Just check if file exists and is readable
+                if not path.exists():
+                    return False
+                path.stat()  # This will raise an exception if file is not readable
+                return True
+            except (IOError, PermissionError):
+                return False
 
         return True
 

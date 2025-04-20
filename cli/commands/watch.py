@@ -43,6 +43,36 @@ def watch(
             print("[blue]Create one first:[/blue] vaultic create --linked")
             raise typer.Exit(code=1)
 
+        # If no vault_id provided, select one
+        if not vault_id:
+            if len(vaults) == 1:
+                vault_id = vaults[0]["id"]
+                print(f"[green]Using vault: {vaults[0]['name']}[/green]")
+            else:
+                import questionary
+
+                choices = [f"{v['name']} ({v['id']})" for v in vaults]
+                answer = questionary.select(
+                    "Select a vault:",
+                    choices=choices,
+                    use_indicator=True,
+                    style=questionary.Style(
+                        [
+                            ("selected", "fg:cyan bold"),
+                            ("pointer", "fg:cyan bold"),
+                            ("highlighted", "fg:cyan bold"),
+                        ]
+                    ),
+                ).ask()
+
+                if not answer:
+                    raise ValueError("No vault selected")
+
+                # Extract vault ID from selection
+                selected_name = answer.split(" (")[0]
+                vault_id = answer.split("(")[1].rstrip(")")
+                print(f"[green]Selected vault: {selected_name}[/green]")
+
         # Get passphrase if not provided
         if passphrase is None:
             passphrase = getpass("🔑 Enter vault passphrase: ")
