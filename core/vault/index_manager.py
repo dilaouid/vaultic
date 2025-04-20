@@ -88,7 +88,7 @@ class VaultIndexManager:
 
     def save(self, force: bool = False) -> None:
         """
-        Encrypt and save the vault index.
+        Encrypt and save the vault index with integrity verification.
 
         Args:
             force: Force save even if index hasn't been modified
@@ -99,23 +99,47 @@ class VaultIndexManager:
         if self._index_cache is None:
             return
 
-        # Convert index to JSON
-        index_data = json.dumps(self._index_cache, indent=2).encode()
-
-        # Encrypt and save the index
         try:
+            # Convert index to JSON with sorted keys for consistent hashing
+            index_data = json.dumps(self._index_cache, indent=2, sort_keys=True).encode()
+
             # Create parent directories if they don't exist
             self.encrypted_index_path.parent.mkdir(parents=True, exist_ok=True)
 
+            # Create temporary files for atomic write
+            temp_enc_path = self.encrypted_index_path.with_suffix('.enc.tmp')
+            temp_hmac_path = self.encrypted_hmac_path.with_suffix('.hmac.tmp')
+
             # Encrypt and save the index
             self.enc_service.encrypt_bytes(
-                index_data, self.encrypted_index_path, self.encrypted_hmac_path
+                index_data, temp_enc_path, temp_hmac_path
             )
+
+            # Verify the encrypted data
+            try:
+                decrypted_data = self.enc_service.decrypt_bytes(
+                    temp_enc_path, temp_hmac_path
+                )
+                if decrypted_data != index_data:
+                    raise ValueError("Encryption verification failed")
+            except Exception as e:
+                print(f"[red]❌ Error verifying encrypted index: {e}[/red]")
+                # Clean up temporary files
+                temp_enc_path.unlink(missing_ok=True)
+                temp_hmac_path.unlink(missing_ok=True)
+                raise
+
+            # Atomic rename of temporary files
+            temp_enc_path.replace(self.encrypted_index_path)
+            temp_hmac_path.replace(self.encrypted_hmac_path)
+
             self.modified = False
-            print(f"[green]✓ Index saved to {self.encrypted_index_path}[/green]")
+            print(f"[green]✓ Index saved and verified: {self.encrypted_index_path}[/green]")
+
         except Exception as e:
             print(f"[red]❌ Error saving encrypted index: {e}[/red]")
             traceback.print_exc()
+            raise
 
     def add_file(self, rel_path: Path, encrypted_filename: str, size: int) -> None:
         """

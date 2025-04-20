@@ -9,6 +9,7 @@ from rich import print
 import traceback
 from threading import Timer
 import os
+import json
 
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
@@ -304,7 +305,28 @@ def start_vault_watcher(vault_id: str, passphrase: str):
         meta_path = vault_dir / "keys" / "vault-meta.json"
         if not meta_path.exists():
             raise ValueError("Vault metadata not found")
-        encryption_service = EncryptionService(passphrase, meta_path)
+            
+        # Try to initialize encryption service to verify passphrase
+        try:
+            encryption_service = EncryptionService(passphrase, meta_path)
+            # Try to decrypt a small piece of metadata to verify passphrase
+            with open(meta_path, "rb") as f:
+                metadata = json.load(f)
+                if "salt" in metadata:
+                    # Try to decrypt a small piece of data to verify passphrase
+                    if "encrypted_key" in metadata:
+                        try:
+                            # This will fail if the passphrase is incorrect
+                            encryption_service.decrypt_bytes(
+                                metadata["encrypted_key"].encode(),
+                                metadata["hmac"].encode()
+                            )
+                        except Exception as e:
+                            print(f"[red]❌ Invalid passphrase: {e}[/red]")
+                            exit(1)
+        except Exception as e:
+            print(f"[red]❌ Invalid passphrase or corrupted vault: {e}[/red]")
+            exit(1)
 
         # Create necessary directories
         content_dir = vault_dir / "encrypted" / "content"
@@ -334,13 +356,13 @@ def start_vault_watcher(vault_id: str, passphrase: str):
             try:
                 # Extract files from archive
                 files = encryption_service.extract_from_archive(archive_path)
-
+                
                 # Save extracted files
                 for filename, content in files.items():
                     file_path = content_dir / filename
                     file_path.parent.mkdir(parents=True, exist_ok=True)
                     file_path.write_bytes(content)
-
+                    
                     # Create HMAC file
                     hmac_path = hmac_dir / f"{filename}.hmac"
                     hmac_path.parent.mkdir(parents=True, exist_ok=True)
@@ -355,12 +377,11 @@ def start_vault_watcher(vault_id: str, passphrase: str):
                 if not any(archive_dir.iterdir()):
                     archive_dir.rmdir()
 
-                print(
-                    f"[green]✓ Archive decompressed successfully with {len(files)} files[/green]"
-                )
+                print(f"[green]✓ Archive decompressed successfully with {len(files)} files[/green]")
             except Exception as e:
-                print(f"[red]❌ Error decompressing archive:[/red] {str(e)}")
+                print(f"[red]❌ Error decompressing archive: {e}[/red]")
                 traceback.print_exc()
+                exit(1)  # Exit if archive is corrupted
 
         # Initialize index manager
         index_manager = VaultIndexManager(encryption_service, vault_dir)
@@ -374,13 +395,13 @@ def start_vault_watcher(vault_id: str, passphrase: str):
             encryption_service,
             provider,
             index_manager,
-            provider_name=Config.PROVIDER,
+            provider_name=Config.PROVIDER
         )
 
         # Start watching
         print("[green]✓ Watcher started[/green]")
         print("[blue]Press Ctrl+C to stop[/blue]")
-
+        
         try:
             file_handler.start()
             while True:
@@ -388,7 +409,7 @@ def start_vault_watcher(vault_id: str, passphrase: str):
         except KeyboardInterrupt:
             print("\n[yellow]🛑 Stopping watcher...[/yellow]")
             file_handler.stop()
-
+            
             # Create archive of all files
             print("[blue]Creating archive...[/blue]")
             try:
@@ -396,44 +417,40 @@ def start_vault_watcher(vault_id: str, passphrase: str):
                 archive_dir.mkdir(parents=True, exist_ok=True)
                 archive_path = archive_dir / ARCHIVE_FILENAME
                 archive_hmac_path = archive_dir / ARCHIVE_HMAC_FILENAME
-
+                
                 # Get all files from content directory
                 files = {}
                 for file_path in content_dir.glob("**/*"):
                     if file_path.is_file():
                         rel_path = file_path.relative_to(content_dir)
                         files[str(rel_path)] = file_path.read_bytes()
-
+                
                 # Create encrypted archive
                 if files:
                     encryption_service.create_encrypted_archive(files, archive_path)
                     print(f"[green]✓ Archive created with {len(files)} files[/green]")
                 else:
                     print("[yellow]No files to archive[/yellow]")
-
+                    
                 # Delete all files in content and hmac directories after archiving
                 for file_path in content_dir.glob("**/*"):
                     if file_path.is_file():
                         try:
                             file_path.unlink()
                         except Exception as e:
-                            print(
-                                f"[yellow]⚠️ Could not delete file {file_path}: {str(e)}[/yellow]"
-                            )
-
+                            print(f"[yellow]⚠️ Could not delete file {file_path}: {str(e)}[/yellow]")
+                            
                 for file_path in hmac_dir.glob("**/*"):
                     if file_path.is_file():
                         try:
                             file_path.unlink()
                         except Exception as e:
-                            print(
-                                f"[yellow]⚠️ Could not delete file {file_path}: {str(e)}[/yellow]"
-                            )
-
+                            print(f"[yellow]⚠️ Could not delete file {file_path}: {str(e)}[/yellow]")
+                
             except Exception as e:
                 print(f"[red]❌ Error creating archive: {str(e)}[/red]")
                 traceback.print_exc()
-
+            
             # Delete empty directories
             try:
                 if content_dir.exists():
@@ -442,38 +459,32 @@ def start_vault_watcher(vault_id: str, passphrase: str):
                     for _ in content_dir.iterdir():
                         is_empty = False
                         break
-
+                    
                     if is_empty:
                         content_dir.rmdir()
-                        print(
-                            f"[green]✓ Removed empty directory: {content_dir}[/green]"
-                        )
+                        print(f"[green]✓ Removed empty directory: {content_dir}[/green]")
                     else:
-                        print(
-                            f"[yellow]⚠️ Directory not empty, cannot delete: {content_dir}[/yellow]"
-                        )
-
+                        print(f"[yellow]⚠️ Directory not empty, cannot delete: {content_dir}[/yellow]")
+                        
                 if hmac_dir.exists():
                     # Check if directory is empty
                     is_empty = True
                     for _ in hmac_dir.iterdir():
                         is_empty = False
                         break
-
+                    
                     if is_empty:
                         hmac_dir.rmdir()
                         print(f"[green]✓ Removed empty directory: {hmac_dir}[/green]")
                     else:
-                        print(
-                            f"[yellow]⚠️ Directory not empty, cannot delete: {hmac_dir}[/yellow]"
-                        )
-
+                        print(f"[yellow]⚠️ Directory not empty, cannot delete: {hmac_dir}[/yellow]")
+                
                 if index_dir.exists() and not any(index_dir.iterdir()):
                     index_dir.rmdir()
                     print(f"[green]✓ Removed empty directory: {index_dir}[/green]")
             except Exception as e:
                 print(f"[yellow]⚠️ Error cleaning up directories: {str(e)}[/yellow]")
-
+            
             print("[green]✓ Watcher stopped[/green]")
             exit(0)  # Use Python's exit instead of typer.Exit
 

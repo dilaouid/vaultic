@@ -78,31 +78,56 @@ def _get_mount_point(path: Path) -> str:
 def secure_delete(path: Path, passes: int = 3) -> None:
     """
     Securely delete a file by overwriting it multiple times before unlinking.
+    Includes error handling and final verification.
 
     Args:
         path: Path to the file to delete
-        passes: Number of overwrite passes
+        passes: Number of overwrite passes (default: 3 for HDD, 1 for SSD)
     """
     if not path.exists():
         return
 
-    # Get file size
-    file_size = path.stat().st_size
+    try:
+        # Get file size
+        file_size = path.stat().st_size
 
-    # Skip secure deletion for very large files (performance)
-    # or zero-byte files (no data to overwrite)
-    if file_size == 0 or file_size > 100 * 1024 * 1024:  # 100 MB
+        # Skip secure deletion for very large files (performance)
+        # or zero-byte files (no data to overwrite)
+        if file_size == 0 or file_size > 100 * 1024 * 1024:  # 100 MB
+            path.unlink()
+            return
+
+        # Adjust number of passes based on drive type
+        if not is_rotational(path):
+            passes = 1  # Single pass for SSD
+            print(f"[blue]Using single pass for SSD: {path}[/blue]")
+        else:
+            print(f"[blue]Using {passes} passes for HDD: {path}[/blue]")
+
+        # Overwrite with random data
+        with open(path, "r+b") as f:
+            for _ in range(passes):
+                f.seek(0)
+                # Write random bytes
+                f.write(os.urandom(file_size))
+                f.flush()
+                os.fsync(f.fileno())
+
+        # Verify the file is still accessible before deletion
+        try:
+            with open(path, "rb") as f:
+                f.read(1)  # Try to read one byte
+        except Exception as e:
+            print(f"[red]Error verifying file before deletion: {e}[/red]")
+            return
+
+        # Delete the file
         path.unlink()
-        return
 
-    # Overwrite with random data
-    with open(path, "r+b") as f:
-        for _ in range(passes):
-            f.seek(0)
-            # Write random bytes
-            f.write(os.urandom(file_size))
-            f.flush()
-            os.fsync(f.fileno())
+        # Verify deletion
+        if path.exists():
+            raise Exception("File still exists after deletion")
 
-    # Delete the file
-    path.unlink()
+    except Exception as e:
+        print(f"[red]Error during secure deletion: {e}[/red]")
+        raise
