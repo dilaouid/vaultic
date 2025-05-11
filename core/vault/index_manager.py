@@ -3,12 +3,11 @@ Index Manager - Handles secure vault index operations (encryption, decryption, a
 """
 
 import json
-import time
 import traceback
 
 from rich import print
 from pathlib import Path
-from typing import Dict, Optional, List, Union
+from typing import Dict, Optional, List, Union, Any
 
 from core.encryption.service import (
     EncryptionService,
@@ -141,24 +140,22 @@ class VaultIndexManager:
             traceback.print_exc()
             raise
 
-    def add_file(self, rel_path: Path, encrypted_filename: str, size: int) -> None:
+    def add_file(self, rel_path: Union[Path, str], metadata: Dict[str, Any]) -> None:
         """
-        Add a file to the index.
+        Add a file to the index with its metadata.
 
         Args:
             rel_path: Path relative to the vault root
-            encrypted_filename: Name of the encrypted file
-            size: Size of the file in bytes
+            metadata: File metadata including encrypted_filename, size, added timestamp, etc.
         """
         index = self.load()
-        index[str(rel_path)] = {
-            "encrypted_filename": encrypted_filename,
-            "size": size,
-            "added": time.time(),
-        }
+        index[str(rel_path)] = metadata
         self.modified = True
+        
+        # Update vault metadata file count
+        self._update_vault_file_count(1)
 
-    def remove_file(self, rel_path: Path) -> None:
+    def remove_file(self, rel_path: Union[Path, str]) -> None:
         """
         Remove a file from the index.
 
@@ -166,11 +163,16 @@ class VaultIndexManager:
             rel_path: Path relative to the vault root
         """
         index = self.load()
-        if str(rel_path) in index:
-            del index[str(rel_path)]
+        path_str = str(rel_path)
+        
+        if path_str in index:
+            del index[path_str]
             self.modified = True
+            
+            # Update vault metadata file count
+            self._update_vault_file_count(-1)
 
-    def get_file_info(self, rel_path: Path) -> Optional[Dict]:
+    def get_file_info(self, rel_path: Union[Path, str]) -> Optional[Dict]:
         """
         Get information about a file from the index.
 
@@ -194,8 +196,9 @@ class VaultIndexManager:
         return [
             {
                 "path": path,
-                "size": info["size"],
-                "added": info["added"],
+                "size": info.get("size", 0),
+                "added": info.get("added", 0),
+                "encrypted_filename": info.get("encrypted_filename", ""),
             }
             for path, info in index.items()
         ]
@@ -220,3 +223,26 @@ class VaultIndexManager:
         if self._index_cache is None:
             self.load()
         return self._index_cache
+        
+    def _update_vault_file_count(self, delta: int) -> None:
+        """
+        Update the file count in the vault metadata.
+        
+        Args:
+            delta: Change in file count (positive for additions, negative for removals)
+        """
+        try:
+            meta_path = self.vault_dir / "keys" / "vault-meta.json"
+            if meta_path.exists():
+                with open(meta_path, "r") as f:
+                    metadata = json.load(f)
+                
+                # Update file count, ensuring it doesn't go below 0
+                current_count = metadata.get("file_count", 0)
+                new_count = max(0, current_count + delta)
+                metadata["file_count"] = new_count
+                
+                with open(meta_path, "w") as f:
+                    json.dump(metadata, f, indent=2)
+        except Exception as e:
+            print(f"[yellow]⚠️ Could not update file count in metadata: {e}[/yellow]")

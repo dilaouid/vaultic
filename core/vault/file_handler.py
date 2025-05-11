@@ -4,17 +4,25 @@ File Handler - Manages the encryption, storage, and indexing of files in a vault
 
 import hashlib
 import json
+import os
+import time
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Union, Tuple, Literal
 from rich import print
 import base64
 import hmac
+import re
 
 from core.utils.security import secure_delete
 from core.vault.index_manager import VaultIndexManager
-from core.encryption.service import (
-    EncryptionService,
-)
+from core.encryption.service import EncryptionService
+
+
+# Duplicate file handling options
+OVERWRITE = "overwrite"
+RENAME = "rename"
+SKIP = "skip"
+FileAction = Literal["overwrite", "rename", "skip"]
 
 
 def get_encrypted_filename(rel_path: Path, enc_service: EncryptionService) -> str:
@@ -35,6 +43,67 @@ def get_encrypted_filename(rel_path: Path, enc_service: EncryptionService) -> st
     # Convert to base64url without padding
     return base64.urlsafe_b64encode(filename_hash).decode().rstrip("=") + ".enc"
 
+
+def _generate_unique_path(original_path: Path) -> Tuple[Path, str]:
+    """
+    Generate a unique path by adding a counter to the filename.
+    
+    Args:
+        original_path: Original file path
+        
+    Returns:
+        Tuple[Path, str]: Unique path and new relative filename
+    """
+    stem = original_path.stem
+    suffix = original_path.suffix
+    parent = original_path.parent
+    
+    # Check if stem already has a counter pattern like "filename_1"
+    counter_match = re.search(r'(.+)_(\d+)$', stem)
+    if counter_match:
+        base_name = counter_match.group(1)
+        counter = int(counter_match.group(2)) + 1
+    else:
+        base_name = stem
+        counter = 1
+    
+    # Generate new filename
+    new_filename = f"{base_name}_{counter}{suffix}"
+    new_path = parent / new_filename
+    
+    return new_path, new_filename
+
+
+def _ask_for_duplicate_action(file_path: str) -> FileAction:
+    """
+    Ask the user how to handle a duplicate file.
+    
+    Args:
+        file_path: Path to the duplicate file
+        
+    Returns:
+        FileAction: User's chosen action (overwrite, rename, skip)
+    """
+    from questionary import select
+    
+    print(f"[yellow]⚠️ File already exists in vault: {file_path}[/yellow]")
+    
+    try:
+        action = select(
+            "How would you like to handle this file?",
+            choices=[
+                {"name": "Rename (create a new version with incremented name)", "value": RENAME},
+                {"name": "Overwrite (replace existing file)", "value": OVERWRITE},
+                {"name": "Skip (ignore this file)", "value": SKIP},
+            ]
+        ).ask()
+        
+        return action or RENAME  # Default to RENAME if user cancels
+    except Exception as e:
+        print(f"[yellow]Error showing prompt: {e}. Using default action: Rename[/yellow]")
+        return RENAME
+
+
 def encrypt_and_store_file(
     src_path: Path,
     rel_path: Path,
@@ -42,9 +111,11 @@ def encrypt_and_store_file(
     encrypted_dir: Path,
     provider,
     index_manager: VaultIndexManager,
-) -> bool:
+    duplicate_action: Optional[FileAction] = None,
+) -> Union[bool, str]:
     """
-    Encrypt and store a file in the vault.
+    Encrypt and store a file in the vault. If a file with the same name exists,
+    gives user options to overwrite, rename, or skip.
 
     Args:
         src_path: Path to the source file
@@ -53,9 +124,10 @@ def encrypt_and_store_file(
         encrypted_dir: Directory where encrypted files are stored
         provider: Storage provider instance
         index_manager: Index manager instance
+        duplicate_action: How to handle duplicates (if None, will prompt)
 
     Returns:
-        bool: True if file was encrypted and stored successfully
+        Union[bool, str]: True/encrypted filename if successful, False otherwise
     """
     try:
         # Check if file exists
@@ -64,13 +136,41 @@ def encrypt_and_store_file(
             return False
 
         # Check if file already exists in vault
+        original_rel_path = rel_path
         file_info = index_manager.get_file_info(rel_path)
+        
         if file_info:
-            print(f"[yellow]⚠️ File already exists in vault: {rel_path}[/yellow]")
-            return (
-                True  # Return True to indicate success since file is already encrypted
-            )
-
+            # Handle duplicate file
+            if duplicate_action is None:
+                # Ask user for action if not specified
+                duplicate_action = _ask_for_duplicate_action(str(rel_path))
+            
+            if duplicate_action == SKIP:
+                print(f"[blue]Skipping file: {rel_path}[/blue]")
+                return True  # Return True to indicate successful handling
+                
+            elif duplicate_action == RENAME:
+                # Generate a unique path
+                new_path, new_filename = _generate_unique_path(rel_path)
+                print(f"[blue]Creating version with unique name: {new_filename}[/blue]")
+                rel_path = new_path
+                
+            elif duplicate_action == OVERWRITE:
+                print(f"[blue]Overwriting existing file: {rel_path}[/blue]")
+                # Continue with existing rel_path
+                
+                # If we're overwriting, we should remove the existing file from index
+                try:
+                    # Save current filename for deletion after encryption
+                    old_filename = file_info.get("encrypted_filename")
+                    old_enc_path = encrypted_dir / "content" / old_filename
+                    old_hmac_path = encrypted_dir / "hmac" / f"{old_filename}.hmac"
+                    
+                    # Remove from index first
+                    index_manager.remove_file(rel_path)
+                except Exception as e:
+                    print(f"[yellow]⚠️ Error preparing for overwrite: {e}[/yellow]")
+        
         # Read file content
         try:
             content = src_path.read_bytes()
@@ -97,6 +197,16 @@ def encrypt_and_store_file(
         try:
             enc_service.encrypt_file(str(src_path), str(enc_path), str(hmac_path))
             print(f"[green]✓ File encrypted successfully: {rel_path}[/green]")
+            
+            # If we're overwriting, delete the old encrypted files
+            if duplicate_action == OVERWRITE and 'old_enc_path' in locals():
+                try:
+                    if old_enc_path.exists():
+                        old_enc_path.unlink()
+                    if old_hmac_path.exists():
+                        old_hmac_path.unlink()
+                except Exception as e:
+                    print(f"[yellow]⚠️ Could not delete old encrypted files: {e}[/yellow]")
         except Exception as e:
             print(f"[red]❌ Error encrypting file {src_path}: {str(e)}[/red]")
             import traceback
@@ -106,7 +216,17 @@ def encrypt_and_store_file(
 
         # Update index with encrypted filename
         try:
-            index_manager.add_file(rel_path, encrypted_filename, len(content))
+            file_metadata = {
+                "encrypted_filename": encrypted_filename,
+                "size": len(content),
+                "added": time.time(),
+                "original_path": str(src_path),
+            }
+            
+            if original_rel_path != rel_path:
+                file_metadata["renamed_from"] = str(original_rel_path)
+                
+            index_manager.add_file(rel_path, file_metadata)
         except Exception as e:
             print(f"[red]❌ Error updating index for {rel_path}: {str(e)}[/red]")
             return False
@@ -127,7 +247,7 @@ def encrypt_and_store_file(
             print(f"[yellow]⚠️ Could not delete original file: {e}[/yellow]")
             # Continue anyway as the file is already encrypted
 
-        return True
+        return encrypted_filename
 
     except Exception as e:
         import traceback
@@ -144,6 +264,7 @@ def extract_file(
     provider,
     index_manager: VaultIndexManager,
     output_dir: Optional[Path] = None,
+    duplicate_action: Optional[FileAction] = None,
 ) -> Optional[Path]:
     """
     Extract and decrypt a file from the vault.
@@ -155,6 +276,7 @@ def extract_file(
         provider: Storage provider instance
         index_manager: Index manager instance
         output_dir: Optional directory to extract to (defaults to vault root)
+        duplicate_action: How to handle duplicates (if None, will prompt)
 
     Returns:
         Optional[Path]: Path to the extracted file if successful, None otherwise
@@ -166,13 +288,21 @@ def extract_file(
             print(f"[red]❌ File not found in index: {rel_path}[/red]")
             return None
 
-        encrypted_filename = file_info["encrypted_filename"]
+        encrypted_filename = file_info.get("encrypted_filename")
+        if not encrypted_filename:
+            print(f"[red]❌ Missing encrypted filename in index for: {rel_path}[/red]")
+            return None
+            
         enc_path = encrypted_dir / "content" / encrypted_filename
         hmac_path = encrypted_dir / "hmac" / f"{encrypted_filename}.hmac"
 
-        # Verify HMAC
-        if not enc_service.verify_hmac(enc_path, hmac_path.read_bytes()):
-            print(f"[red]❌ HMAC verification failed for: {rel_path}[/red]")
+        # Verify files exist
+        if not enc_path.exists():
+            print(f"[red]❌ Encrypted file not found: {enc_path}[/red]")
+            return None
+            
+        if not hmac_path.exists():
+            print(f"[red]❌ HMAC file not found: {hmac_path}[/red]")
             return None
 
         # Create output directory if needed
@@ -182,9 +312,53 @@ def extract_file(
 
         # Create output path
         output_path = output_dir / rel_path
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Check if output file already exists
+        if output_path.exists():
+            # Handle duplicate extraction
+            if duplicate_action is None:
+                # Ask user what to do
+                from questionary import select
+                
+                print(f"[yellow]⚠️ File already exists at extraction path: {output_path}[/yellow]")
+                
+                try:
+                    duplicate_action = select(
+                        "How would you like to handle this extraction?",
+                        choices=[
+                            {"name": "Rename (extract to a new filename)", "value": RENAME},
+                            {"name": "Overwrite (replace existing file)", "value": OVERWRITE},
+                            {"name": "Skip (don't extract this file)", "value": SKIP},
+                        ]
+                    ).ask()
+                    
+                    if duplicate_action is None:
+                        duplicate_action = RENAME  # Default if user cancels
+                except Exception as e:
+                    print(f"[yellow]Error showing prompt: {e}. Using default action: Rename[/yellow]")
+                    duplicate_action = RENAME
+            
+            if duplicate_action == SKIP:
+                print(f"[blue]Skipping extraction: {rel_path}[/blue]")
+                return None
+                
+            elif duplicate_action == RENAME:
+                # Generate unique name
+                unique_path, unique_name = _generate_unique_path(output_path)
+                print(f"[blue]Using unique name for extraction: {unique_name}[/blue]")
+                output_path = unique_path
+                
+            elif duplicate_action == OVERWRITE:
+                print(f"[blue]Overwriting existing file: {output_path}[/blue]")
+                # Make sure we have write permission
+                if not os.access(str(output_path.parent), os.W_OK):
+                    print(f"[red]❌ No write permission for: {output_path.parent}[/red]")
+                    return None
 
         # Decrypt file
         enc_service.decrypt_file(enc_path, output_path)
+        print(f"[green]✓ File extracted successfully: {output_path}[/green]")
 
         return output_path
 

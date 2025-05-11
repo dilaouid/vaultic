@@ -4,6 +4,8 @@ Security Utilities - Functions related to secure file operations.
 
 import os
 import platform
+
+from rich import print
 from pathlib import Path
 
 
