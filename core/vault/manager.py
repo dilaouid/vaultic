@@ -29,14 +29,19 @@ def create_vault(
     """
     Create a new encrypted vault with the specified parameters.
     """
-    # Create a unique vault ID if name is not provided
-    vault_id = name or f"vault-{int(time.time())}-{uuid.uuid4().hex[:8]}"
-
     # Ensure base directories exist
     vault_root = get_vaults_directory()
     vault_root.mkdir(parents=True, exist_ok=True)
 
-    vault_dir = vault_root / vault_id
+    if name:
+        existing_vault_path = vault_root / name
+        if existing_vault_path.exists():
+            raise ValueError(f"A vault with the name '{name}' already exists. Please choose another name.")
+    else:
+        # Generate a unique vault ID if name is not provided
+        name = f"vault-{int(time.time())}-{uuid.uuid4().hex[:8]}"
+
+    vault_dir = vault_root / name
     vault_dir.mkdir(parents=True, exist_ok=True)
 
     keys_dir = vault_dir / "keys"
@@ -47,7 +52,7 @@ def create_vault(
 
     # Create metadatas according to salt
     metadata = {
-        "vault_id": vault_id,
+        "vault_id": name,
         "created_at": time.time(),
         "linked": linked,
         "file_count": 0,  # Initialize file count as metadata
@@ -77,7 +82,7 @@ def create_vault(
 
     # Create README file
     readme_content = (
-        f"# Vault: {vault_id}\n\n"
+        f"# Vault: {name}\n\n"
         "This is a Vaultic encrypted vault. Place files here to encrypt them automatically.\n\n"
         "- Files will be encrypted with AES-256 and stored in the 'encrypted' directory\n"
         "- Original files will be securely deleted after encryption\n"
@@ -85,7 +90,7 @@ def create_vault(
     )
     (vault_dir / "README.md").write_text(readme_content)
 
-    return vault_id
+    return name
 
 
 def list_vaults(passphrase: Optional[str] = None) -> List[Dict]:
